@@ -24,14 +24,15 @@ import runpod
 import torch
 from PIL import Image
 from transformers import (
-    AutoModel,
+    CLIPModel,
+    CLIPProcessor,
     AutoModelForImageTextToText,
     AutoProcessor,
 )
 
-EMBED_MODEL_ID = "google/siglip2-so400m-patch16-384"
+EMBED_MODEL_ID = "openai/clip-vit-base-patch32"
 CAPTION_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
-EMBED_DIM = 1152
+EMBED_DIM = 512
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 _dtype = (
@@ -52,11 +53,11 @@ def load_models():
     global embed_model, embed_processor, caption_model, caption_processor
 
     if embed_model is None:
-        print(f"Loading SigLIP2 embedder ({EMBED_MODEL_ID}) on {device}...")
-        embed_processor = AutoProcessor.from_pretrained(EMBED_MODEL_ID)
-        embed_model = AutoModel.from_pretrained(
+        print(f"Loading CLIP embedder ({EMBED_MODEL_ID}) on {device}...")
+        embed_processor = CLIPProcessor.from_pretrained(EMBED_MODEL_ID)
+        embed_model = CLIPModel.from_pretrained(
             EMBED_MODEL_ID,
-            torch_dtype=_dtype,
+            torch_dtype=torch.float32,  # CLIP is stable on float32/fp16, bfloat16 can be weird on some CPU/GPUs
             device_map="auto" if device == "cuda" else None,
         ).eval()
         if device == "cpu":
@@ -75,12 +76,16 @@ def load_models():
 
 
 def embed_image(image: Image.Image) -> list[float]:
-    """SigLIP2 image embedding, L2-normalised, as a plain Python float list."""
+    """CLIP image embedding, L2-normalised, as a plain Python float list."""
     assert embed_processor is not None
     assert embed_model is not None
     inputs = embed_processor(images=[image], return_tensors="pt").to(device)
     with torch.no_grad():
-        feats = embed_model.get_image_features(**inputs)
+        output_obj = embed_model.get_image_features(**inputs)
+        if hasattr(output_obj, "pooler_output"):
+            feats = output_obj.pooler_output
+        else:
+            feats = output_obj
     feats = torch.nn.functional.normalize(feats, p=2, dim=-1)
     return feats[0].cpu().to(torch.float32).tolist()
 

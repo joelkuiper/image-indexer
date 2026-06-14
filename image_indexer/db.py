@@ -3,10 +3,9 @@
 Loads the sqlite-vec extension, applies SQL migrations, and exposes the three
 search surfaces: structured (SQL), lexical (FTS5), and semantic (vec0).
 
-The embedding dimension is fixed at SIGLIP2_DIM to match
-google/siglip2-so400m-patch16-384. If you swap encoders, bump the migration.
+The embedding dimension is fixed at EMBED_DIM to match
+our local text embedder. If you swap encoders, bump the migration.
 """
-
 from __future__ import annotations
 
 import sqlite3
@@ -16,7 +15,7 @@ from typing import Iterable, Sequence
 
 import sqlite_vec
 
-SIGLIP2_DIM = 1152
+EMBED_DIM = 512
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
@@ -61,8 +60,10 @@ def upsert_image(
 
     Dedup is on sha256: an unchanged file updates in place rather than duplicating.
     """
-    if embedding is not None and len(embedding) != SIGLIP2_DIM:
-        raise ValueError(f"embedding has dim {len(embedding)}, expected {SIGLIP2_DIM}")
+    if embedding is not None and len(embedding) != EMBED_DIM:
+        raise ValueError(
+            f"embedding has dim {len(embedding)}, expected {EMBED_DIM}"
+        )
 
     cols = [
         "path",
@@ -112,7 +113,7 @@ def upsert_image(
 def search_semantic(
     db: sqlite3.Connection, query_embedding: Sequence[float], k: int = 10
 ):
-    """Vector KNN. Pass a SigLIP2 text OR image embedding (same space)."""
+    """Vector KNN. Pass a CLIP text OR image embedding (same space)."""
     rows = db.execute(
         "SELECT v.image_id, v.distance, i.path, i.description "
         "FROM vec_images v JOIN images i ON i.id = v.image_id "
@@ -135,7 +136,9 @@ def search_lexical(db: sqlite3.Connection, query: str, k: int = 10):
     return [dict(r) for r in rows]
 
 
-def search_structured(db: sqlite3.Connection, where: str, params: Iterable = ()):
+def search_structured(
+    db: sqlite3.Connection, where: str, params: Iterable = ()
+):
     """Plain SQL filter over structured columns, e.g. "camera_model = ?"."""
     rows = db.execute(
         f"SELECT * FROM images WHERE {where} ORDER BY datetime_original DESC",

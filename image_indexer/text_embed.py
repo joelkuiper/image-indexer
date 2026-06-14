@@ -1,26 +1,25 @@
-"""Local text embedding via SigLIP2.
+"""Local text embedding via OpenAI CLIP.
 
-SigLIP2 is a CLIP-style dual encoder: images and text map to the same 1152-d space.
-We load only the text encoder locally (~200MB, runs fine on CPU).
-This enables semantic search without a RunPod endpoint.
+CLIP (CLIP-ViT-B-32) has excellent direct cosine-similarity alignment between
+image and text embeddings, making it perfect for native SQLite-vec searches.
+The text encoder is extremely lightweight (~150MB, runs instantly on CPU).
 
 Usage:
     embedder = TextEmbedder()
     vec = embedder.embed("a black and white photo of a waterfall")
-    # vec = [float x 1152], L2-normalised
+    # vec = [float x 512], L2-normalised
 """
-
 from __future__ import annotations
 
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import CLIPModel, CLIPProcessor
 
-MODEL_ID = "google/siglip2-so400m-patch16-384"
-TEXT_EMBED_DIM = 1152
+MODEL_ID = "openai/clip-vit-base-patch32"
+TEXT_EMBED_DIM = 512
 
 
 class TextEmbedder:
-    """Local SigLIP2 text encoder. Lazy-loads on first call."""
+    """Local CLIP text encoder. Lazy-loads on first call."""
 
     def __init__(self, model_id: str = MODEL_ID):
         self.model_id = model_id
@@ -29,15 +28,15 @@ class TextEmbedder:
 
     def _load(self):
         if self._model is None:
-            self._processor = AutoProcessor.from_pretrained(self.model_id)
-            self._model = AutoModel.from_pretrained(
+            self._processor = CLIPProcessor.from_pretrained(self.model_id)
+            self._model = CLIPModel.from_pretrained(
                 self.model_id,
                 torch_dtype=torch.float32,
                 device_map="cpu",
             ).eval()
 
     def embed(self, text: str | list[str]) -> list[float] | list[list[float]]:
-        """Embed one or more text queries into the SigLIP2 1152-d space.
+        """Embed one or more text queries into the CLIP 512-d space.
 
         Returns L2-normalised vectors compatible with sqlite-vec cosine search.
         """
@@ -50,7 +49,14 @@ class TextEmbedder:
 
         inputs = self._processor(text=texts, return_tensors="pt", padding=True)
         with torch.no_grad():
-            feats = self._model.get_text_features(**inputs).pooler_output
+            output_obj = self._model.get_text_features(**inputs)
+            # In some transformers versions, get_text_features returns the raw Tensor,
+            # in others (with newer AutoModel mappings) it returns BaseModelOutputWithPooling.
+            # Handle both gracefully.
+            if hasattr(output_obj, "pooler_output"):
+                feats = output_obj.pooler_output
+            else:
+                feats = output_obj
 
         feats = torch.nn.functional.normalize(feats, p=2, dim=-1)
         vectors = feats.cpu().to(torch.float32).tolist()

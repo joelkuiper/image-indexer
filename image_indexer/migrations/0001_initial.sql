@@ -94,7 +94,7 @@ END;
 -- ---------------------------------------------------------------------------
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_images USING vec0(
     image_id INTEGER PRIMARY KEY,
-    embedding FLOAT[1152] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine
 );
 
 -- ---------------------------------------------------------------------------

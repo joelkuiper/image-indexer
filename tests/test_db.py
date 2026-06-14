@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 
 from image_indexer import db
-from image_indexer.db import SIGLIP2_DIM
+from image_indexer.db import EMBED_DIM
 
 
 def _vec(seed: float) -> list[float]:
     """Deterministic unit-ish vector of the right dimension."""
-    v = [math.sin(seed + i) for i in range(SIGLIP2_DIM)]
+    v = [math.sin(seed + i) for i in range(EMBED_DIM)]
     norm = math.sqrt(sum(x * x for x in v))
     return [x / norm for x in v]
 

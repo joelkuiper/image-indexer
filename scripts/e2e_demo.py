@@ -34,7 +34,7 @@ from image_indexer.preprocess import preprocess  # noqa: E402
 # Fake models: generate a deterministic embedding + caption from the image
 # content so each "photo" gets a unique, queryable result.
 # ---------------------------------------------------------------------------
-EMBED_DIM = 1152
+EMBED_DIM = 512
 
 
 def fake_embed_image(image: Image.Image) -> list[float]:

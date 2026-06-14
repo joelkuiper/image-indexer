@@ -28,22 +28,22 @@ class TestHandlerContract(unittest.TestCase):
 
     @patch("worker.handler.load_models")
     @patch("worker.handler.caption_image", return_value="A calm harbour at dusk.")
-    @patch("worker.handler.embed_image", return_value=[0.1] * 1152)
+    @patch("worker.handler.embed_image", return_value=[0.1] * 512)
     @patch("PIL.Image.open")
     def test_task_all(self, mock_open, _embed, _caption, _load):
         from worker import handler
 
         mock_open.return_value.convert.return_value = object()
         resp = handler.handler({"input": {"image_b64": _b64(), "task": "all"}})
-        self.assertEqual(len(resp["embedding"]), 1152)
-        self.assertEqual(resp["embedding_dim"], 1152)
+        self.assertEqual(len(resp["embedding"]), 512)
+        self.assertEqual(resp["embedding_dim"], 512)
         self.assertEqual(resp["description"], "A calm harbour at dusk.")
         self.assertIn("embed", resp["models"])
         self.assertIn("caption", resp["models"])
 
     @patch("worker.handler.load_models")
     @patch("worker.handler.caption_image", return_value="X")
-    @patch("worker.handler.embed_image", return_value=[0.1] * 1152)
+    @patch("worker.handler.embed_image", return_value=[0.1] * 512)
     @patch("PIL.Image.open")
     def test_task_embed_only(self, mock_open, _embed, mock_caption, _load):
         from worker import handler
