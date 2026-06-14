@@ -136,12 +136,13 @@ def search(query, semantic, lexical, structured, limit):
     results = []
 
     if semantic:
-        click.echo(
-            "Semantic search needs a RunPod endpoint for text embedding. "
-            "TODO: wire up text → vector via client.run().",
-            err=True,
-        )
-        sys.exit(EXIT_SYSTEM_ERROR)
+        from typing import cast
+        from image_indexer.text_embed import TextEmbedder
+        embedder = TextEmbedder()
+        log(ctx, "Embedding query via SigLIP2 (local)...")
+        query_vec = cast(list[float], embedder.embed(query))
+        from image_indexer.db import search_semantic
+        results.extend(search_semantic(db, query_vec, k=limit))
 
     if lexical:
         from image_indexer.db import search_lexical
