@@ -1,7 +1,7 @@
 [project]
 name = "image-indexer"
 version = "0.1.0"
-description = "On-device image indexing with local metadata extraction and serverless GPU visual semantic processing."
+description = "Visual memory search — find anything with pixels by what you remember, not what you named it."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,3 +22,13 @@ heif = ["pillow-heif>=0.15.0"]
 dev = [
     "pytest>=8.0.0"
 ]
+
+[project.scripts]
+idx = "image_indexer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["image_indexer*"]
+exclude = ["worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
