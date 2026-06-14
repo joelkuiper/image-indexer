@@ -1,17 +1,20 @@
-"""Minimal RunPod hello-world handler.
+"""RunPod serverless handler — infrastructure validation hello world.
 
-Proves the infrastructure works:
-- Container starts ✓
-- Handler receives job ✓
-- Base64 image decodes ✓
-- CUDA is available ✓
-- Response returns correctly ✓
+Proves the full stack works:
+- Container starts on RunPod GPU
+- Handler receives jobs via /run endpoint
+- Authorization handled by RunPod (not in handler)
+- Base64 image decoding works
+- CUDA/GPU access available
+- Response contract correct
 
-No models, no heavy deps. Just torch + Pillow for the CUDA check and decode.
+API contract:
+  POST https://api.runpod.ai/v2/{endpoint_id}/run
+  Headers: Authorization: Bearer YOUR_API_KEY
+  Body: { "input": { "image_b64": "...", "task": "embed" } }
 """
 import base64
 import io
-import time
 
 import runpod
 import torch
@@ -19,17 +22,23 @@ from PIL import Image
 
 
 def handler(job):
-    start = time.time()
+    """RunPod serverless handler.
     
+    Input: {"image_b64": "<base64>", "task": "validate"}
+    Output: greeting, compute info, decoded image info
+    
+    Authorization is handled by RunPod infrastructure, not here.
+    """
     job_input = job.get("input", {})
-    image_b64 = job_input.get("image_b64")
     
     # CUDA check
     cuda_available = torch.cuda.is_available()
     gpu_name = torch.cuda.get_device_name(0) if cuda_available else "CPU only"
+    torch_version = torch.__version__
     
-    # If they sent an image, decode it and report dimensions
+    # Decode image if provided
     image_info = None
+    image_b64 = job_input.get("image_b64")
     if image_b64:
         try:
             img_bytes = base64.b64decode(image_b64)
@@ -41,21 +50,18 @@ def handler(job):
                 "bytes_decoded": len(img_bytes),
             }
         except Exception as e:
-            image_info = {"error": f"Failed to decode: {e}"}
-    
-    elapsed_ms = round((time.time() - start) * 1000, 2)
+            image_info = {"error": f"Failed to decode: {str(e)}"}
     
     return {
         "greeting": "Hello from RunPod! 🚀",
         "compute": {
             "cuda_available": cuda_available,
             "gpu": gpu_name,
-            "torch_version": torch.__version__,
+            "torch_version": torch_version,
         },
         "image": image_info,
-        "handler_time_ms": elapsed_ms,
     }
 
 
-if __name__ == "__main__":
-    runpod.serverless.start({"handler": handler})
+# RunPod serverless entry point
+runpod.serverless.start({"handler": handler})

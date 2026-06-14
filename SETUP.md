@@ -1,271 +1,145 @@
-# RunPod Hello World — Stap-voor-stap
+# RunPod Hello World — Deploy & Test
 
-Deze guide helpt je een minimale RunPod worker deployen om te bewijzen dat de infra werkt.
+## Deploy vanuit RunPod UI (geen GHCR nodig)
 
-**Wat je nodig hebt:**
-- GitHub account (ingelogd)
-- RunPod account (ingelogd)
-- Docker lokaal geïnstalleerd
-- ~5-10 minuten
+RunPod kan direct vanuit je GitHub repo bouwen:
 
----
+1. **RunPod Console** → Serverless → **New Endpoint**
+2. Vul in:
+   - **Endpoint Name**: `image-indexer-hello`
+   - **Template**: Custom
+   - **Docker Image**: Laat leeg (we gebruiken Dockerfile deploy)
+   - **GitHub Repo**: `joelkuiper/image-indexer`
+   - **Branch**: `main`
+   - **Dockerfile Path**: `worker/hello/Dockerfile`
+3. **GPU & Scaling**:
+   - **GPU Types**: RTX 3070 of L4 (goedkoopst voor test)
+   - **Min Workers**: 0 (scale to zero)
+   - **Max Workers**: 1
+   - **Idle Timeout**: 60 seconds
+4. **Advanced Settings**:
+   - **FlashBoot**: Enabled (snellere cold starts)
+5. Klik **Deploy**
 
-## Stap 1: Lokaal testen
+⚠️ RunPod buildt de container automatisch (~3-4 GB, ~5 min).
 
-Eerst testen we de handler lokaal zonder Docker/RunPod:
+## API Contract
 
+RunPod endpoints gebruiken `/run` (async) of `/runsync` (sync):
+
+```bash
+POST https://api.runpod.ai/v2/{endpoint_id}/run
+Headers:
+  Authorization: Bearer YOUR_API_KEY
+  Content-Type: application/json
+Body:
+  {
+    "input": {
+      "image_b64": "<base64 encoded image>",
+      "task": "validate"
+    }
+  }
+```
+
+**API Key**: RunPod Console → User Settings → API Keys
+
+**Endpoint ID**: Staat in de URL na deploy, bv: `https://www.runpod.io/console/serverless/user/endpoint/80to509hzmd3q4` → ID is `80to509hzmd3q4`
+
+## Local Testing
+
+Test de handler zonder RunPod:
 ```bash
 cd ~/Repositories/image-indexer
 uv run python scripts/test_hello_handler.py
 ```
 
-Je zou moeten zien:
+Verwacht:
 ```
-Test 1: Basic handler call (no image)...
-  ✓ Greeting: Hello from RunPod! 🚀
-  ✓ CUDA: True/False
-  ✓ GPU: NVIDIA RTX ...
-  ✓ Handler time: 12.34ms
+Testing hello-world handler...
+--------------------------------------------------
 
-Test 2: Handler with base64 image...
+[Test 1] Basic call (no image):
+  ✓ Greeting: Hello from RunPod! 🚀
+  ✓ CUDA: False (lokaal, geen GPU)
+  ✓ GPU: CPU only
+  ✓ PyTorch: 2.1.0+cpu
+  ✓ Image: null (as expected)
+
+[Test 2] Call with base64 image:
   ✓ Image decoded: (2, 2)
   ✓ Format: PNG
-  ✓ Bytes decoded: 69
+  ✓ Mode: RGB
+  ✓ Bytes: 79
 
-✅ All tests passed! Handler is ready for RunPod.
+==================================================
+✅ All tests passed! Handler is RunPod-ready.
+==================================================
+
+RunPod /run endpoint contract:
+  POST https://api.runpod.ai/v2/{endpoint_id}/run
+  Headers: Authorization: Bearer YOUR_API_KEY
+  Body: { 'input': { 'image_b64': '...', 'task': 'validate' } }
 ```
 
----
+## Remote Testing
 
-## Stap 2: GitHub Container Registry (GHCR) — Token maken
-
-1. Ga naar https://github.com/settings/tokens
-2. Klik **"Generate new token (classic)"**
-3. Vul in:
-   - **Note**: `runpod-deploy`
-   - **Expiration**: 90 days (of wat je prettig vindt)
-   - **Scopes**: vink aan `write:packages` (automatisch ook `read:packages`)
-4. Klik onderaan **"Generate token"**
-5. **Kopieer het token NU** (ghp_...) — je ziet het nooit meer!
-
-Sla het veilig op:
+Test het deployed endpoint:
 ```bash
-# Plak je token hier (ghp_xxxx)
-echo "ghp_YOUR_TOKEN_HERE" > ~/.ghcr-token
-chmod 600 ~/.ghcr-token
+# Get your API key from RunPod Console → User Settings
+export RUNPOD_API_KEY="your_api_key_here"
+
+# Test basic call
+curl -X POST "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+  -d '{"input":{}}'
+
+# Response (async - returns request ID):
+# {"id": "req_abc123", "status": "IN_QUEUE", ...}
+
+# Check status:
+curl "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/status/req_abc123" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}"
 ```
 
----
-
-## Stap 3: Docker login op GHCR
-
+Of gebruik de test script (update `ENDPOINT_ID` in het script):
 ```bash
-docker login ghcr.io -u joelkuiper --password-stdin < ~/.ghcr-token
+./scripts/test_runpod_endpoint.sh YOUR_API_KEY
 ```
 
-Je zou moeten zien: `Login Succeeded`
+## Expected Response
 
----
-
-## Stap 4: Docker image bouwen
-
-```bash
-cd ~/Repositories/image-indexer
-docker build -t ghcr.io/joelkuiper/image-indexer-hello:latest -f worker/hello/Dockerfile .
-```
-
-**Verwacht:**
-- Download van de PyTorch base image (~2-3 GB)
-- `pip install runpod pillow`
-- Kopie van handler.py
-
-**Grootte:** ~3-4 GB (veel kleiner dan de 15GB echte worker)
-
-Controleer:
-```bash
-docker images | grep image-indexer-hello
-```
-
----
-
-## Stap 5: Push naar GHCR
-
-```bash
-docker push ghcr.io/joelkuiper/image-indexer-hello:latest
-```
-
-**Duurt:** 5-15 minuten afhankelijk van je upload.
-
----
-
-## Stap 6: GitHub Package public maken
-
-1. Ga naar https://github.com/joelkuiper?tab=packages
-2. Klik op **`image-indexer-hello`**
-3. Klik rechts op **"Package settings"**
-4. Scroll naar beneden → **"Change visibility"**
-5. Kies **"Public"** → bevestig met je package naam
-6. Klik **"Change visibility"** button
-
-**Waarom public?** RunPod kan dan pullen zonder credentials configureren.
-
----
-
-## Stap 7: RunPod — Endpoint maken
-
-1. Ga naar https://www.runpod.io → login
-2. Links in de sidebar: **"Serverless"**
-3. Klik **"+ New Endpoint"**
-4. Vul in:
-   - **Endpoint name**: `image-indexer-hello`
-   - **Template**: Selecteer **"Custom"** (onderaan de lijst)
-   - **Container Image**: `ghcr.io/joelkuiper/image-indexer-hello:latest`
-   - **Container Disk**: 20 GB (default is prima)
-   - **Volume Disk**: 0 GB (niet nodig voor deze test)
-   - **GPU Types**: Vink **1 of 2 GPU types** aan (bijv: RTX 3070, RTX 4000 Ada, L4)
-     - *Niet alle types aanvinken — kies de goedkoopste voor deze test*
-   - **Max Workers**: `1`
-   - **Idle Timeout**: `60` (seconden)
-   - **FlashBoot**: ✅ aan (snellere cold start)
-5. Klik **"Deploy"**
-
-**Wacht:** RunPod pullt de image (~1-2 min). Status gaat van "Deploying" → "Ready".
-
----
-
-## Stap 8: Testen via RunPod UI
-
-1. Klik op je endpoint naam (**`image-indexer-hello`**)
-2. Je ziet een pagina met **"Test this endpoint"**
-3. Plak in het JSON vak:
-
+Wanneer de container draait op GPU:
 ```json
 {
-  "input": {}
-}
-```
-
-4. Klik **"Run"**
-5. **Verwacht response** (na ~10-30 sec cold start):
-
-```json
-{
-  "status": "COMPLETED",
-  "output": {
-    "greeting": "Hello from RunPod! 🚀",
-    "compute": {
-      "cuda_available": true,
-      "gpu": "NVIDIA RTX 4000 Ada Generation",
-      "torch_version": "2.1.0+cu118"
-    },
-    "image": null,
-    "handler_time_ms": 142.57
+  "greeting": "Hello from RunPod! 🚀",
+  "compute": {
+    "cuda_available": true,
+    "gpu": "NVIDIA RTX 3070",
+    "torch_version": "2.1.0+cu118"
+  },
+  "image": {
+    "format": "PNG",
+    "size": [2, 2],
+    "mode": "RGB",
+    "bytes_decoded": 79
   }
 }
 ```
-
-**🎉 Gefeliciteerd!** Je hebt nu:
-- ✅ Een werkende RunPod serverless worker
-- ✅ GPU access (CUDA)
-- ✅ Een handler die JSON in/out doet
-- ✅ Bewezen dat de infra werkt
-
----
-
-## Stap 9: Test met een image
-
-1. Op je lokale machine, maak een base64 string van een kleine foto:
-
-```bash
-# Als je een test.jpg hebt:
-base64 -i test.jpg | tr -d '\n' > test.b64
-
-# Of snel een test image maken:
-python -c "from PIL import Image; Image.new('RGB', (100,100), 'red').save('/tmp/test.jpg')"
-base64 -i /tmp/test.jpg | tr -d '\n' > /tmp/test.b64
-```
-
-2. Kopieer de inhoud van `test.b64` (één lange regel)
-3. Ga terug naar RunPod UI → je endpoint
-4. Plak in het JSON vak (vervang `<PASTE_BASE64_HERE>`):
-
-```json
-{
-  "input": {
-    "image_b64": "<PASTE_BASE64_HERE>"
-  }
-}
-```
-
-5. Klik **"Run"**
-6. **Verwacht response**:
-
-```json
-{
-  "status": "COMPLETED",
-  "output": {
-    "greeting": "Hello from RunPod! 🚀",
-    "compute": {
-      "cuda_available": true,
-      "gpu": "NVIDIA RTX 4000 Ada Generation",
-      "torch_version": "2.1.0+cu118"
-    },
-    "image": {
-      "format": "JPEG",
-      "size": [100, 100],
-      "mode": "RGB",
-      "bytes_decoded": 1234
-    },
-    "handler_time_ms": 89.23
-  }
-}
-```
-
-**🎉 Dubbel gefeliciteerd!** Je kunt nu:
-- ✅ Base64 images versturen naar RunPod
-- ✅ GPU inference-ready containers draaien
-- ✅ Handler responses terugkrijgen
-
----
 
 ## Troubleshooting
 
-### "Container failed to start"
-- Check dat je `CMD ["python", "-u", "handler.py"]` hebt in je Dockerfile (`-u` voor unbuffered output)
-- Check RunPod logs: klik op je endpoint → **"Monitoring"** tab
+- **Build failed**: Check RunPod logs (Endpoint → Logs tab)
+- **CUDA not available**: Ensure GPU is selected in endpoint config
+- **Timeout**: First call takes 30-60s (cold start), subsequent calls ~5-10s
+- **Auth error**: Verify API key in headers
 
-### "CUDA not available"
-- Je hebt een CPU-only instance gepakt — maak een nieuw endpoint met GPU types aangevinkt
-- Of de base image heeft geen CUDA support (onze `runpod/pytorch` image heeft het wel)
+## Next Steps
 
-### "Handler timeout"
-- Eerste request duurt ~30 sec (cold start + container pull)
-- Volgende requests: ~5-10 sec (warm)
+✅ Hello world werkt? → Deploy de echte worker met SigLIP2 + Qwen3-VL
 
-### "Image not found" bij push/pull
-- Check dat je package **Public** is (Stap 6)
-- Check dat je username klopt in de image tag
+Zelfde proces, maar met:
+- `worker/worker.py` (echte handler)
+- `worker/worker_dockerfile` (15GB image met models)
 
----
-
-## Wat nu?
-
-Als dit werkt, weten we dat:
-1. Docker build/push werkt ✅
-2. GHCR integratie werkt ✅  
-3. RunPod serverless werkt ✅
-4. GPU access werkt ✅
-5. Handler contract werkt ✅
-
-**Volgende stap:** De echte worker (SigLIP2 + Qwen3-VL) deployen. Die is groter (15 GB) maar het proces is identiek.
-
----
-
-## Kosten
-
-RunPod Serverless rekent per seconde:
-- **Idle** (0 workers): $0
-- **Active** (1 worker): ~$0.0002-0.0004/sec afhankelijk van GPU
-- **Eerste test** (~2 min): ~$0.02 - verwaarloosbaar
-
-Zet **Min Workers = 0** en **Idle Timeout = 60** dan kost het bijna niets als je het niet gebruikt.
+Kosten: ~$0.0004/sec voor RTX 3070, scale to zero = alleen betalen bij gebruik.
