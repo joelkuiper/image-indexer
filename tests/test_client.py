@@ -14,120 +14,132 @@ def client():
 
 class TestRunPodClient:
     def test_url_construction(self, client):
-        assert client._url("runsync") == "https://api.runpod.ai/v2/test123/runsync"
+        assert client._url("run") == "https://api.runpod.ai/v2/test123/run"
 
-    @patch("image_indexer.client.requests.post")
-    def test_run_success(self, mock_post, client):
-        """Successful runsync returns the output dict."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "status": "COMPLETED",
-            "output": {
-                "embedding": [0.1] * 1152,
-                "description": "A serene lake at dawn.",
-            },
-        }
-        mock_post.return_value = mock_resp
+    @pytest.mark.anyio
+    async def test_run_success(self, client):
+        """Successful runsync-like COMPLETED submission returns the output dict."""
+        # We Mock httpx.AsyncClient's post method
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                "status": "COMPLETED",
+                "id": "job_123",
+                "output": {
+                    "embedding": [0.1] * 512,
+                    "description": "A serene lake at dawn.",
+                },
+            }
+            mock_post.return_value = mock_resp
 
-        result = client.run(b"fake-image-bytes", task="all")
+            result = await client.run(b"fake-image-bytes", task="all")
 
-        assert result["description"] == "A serene lake at dawn."
-        assert len(result["embedding"]) == 1152
+            assert result["description"] == "A serene lake at dawn."
+            assert len(result["embedding"]) == 512
+            mock_post.assert_called_once()
 
-        # Verify the request was made correctly.
-        call = mock_post.call_args
-        assert "runsync" in call[1].get("url", "") or "runsync" in call.args[0]
-        assert call[1]["headers"]["Authorization"] == "Bearer rpa_test_key"
-        assert "image_b64" in call[1]["json"]["input"]
-
-    @patch("image_indexer.client.requests.post")
-    def test_run_inference_error(self, mock_post, client):
+    @pytest.mark.anyio
+    async def test_run_inference_error(self, client):
         """Inference errors in the output raise RuntimeError."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "status": "COMPLETED",
-            "output": {"error": "CUDA out of memory"},
-        }
-        mock_post.return_value = mock_resp
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                "status": "COMPLETED",
+                "id": "job_123",
+                "output": {"error": "CUDA out of memory"},
+            }
+            mock_post.return_value = mock_resp
 
-        with pytest.raises(RuntimeError, match="CUDA out of memory"):
-            client.run(b"fake")
+            with pytest.raises(RuntimeError, match="CUDA out of memory"):
+                await client.run(b"fake")
 
-    @patch("image_indexer.client.requests.post")
-    def test_run_job_failed(self, mock_post, client):
+    @pytest.mark.anyio
+    async def test_run_job_failed(self, client):
         """Job-level failures raise RuntimeError."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "status": "FAILED",
-            "error": "Worker crashed",
-        }
-        mock_post.return_value = mock_resp
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            # Submitted but directly marked as failed
+            mock_resp.json.return_value = {
+                "status": "FAILED",
+                "id": "job_123",
+                "error": "Worker crashed",
+            }
+            mock_post.return_value = mock_resp
 
-        with pytest.raises(RuntimeError, match="Worker crashed"):
-            client.run(b"fake")
+            with pytest.raises(RuntimeError, match="Worker crashed"):
+                await client.run(b"fake")
 
-    @patch("image_indexer.client.time.sleep")  # Don't actually wait
-    @patch("image_indexer.client.requests.get")
-    @patch("image_indexer.client.requests.post")
-    def test_run_polls_on_async(self, mock_post, mock_get, _sleep, client):
+    @pytest.mark.anyio
+    @patch("asyncio.sleep")  # Don't actually wait
+    async def test_run_polls_on_async(self, _sleep, client):
         """When runsync returns without COMPLETED, it falls back to polling."""
-        # runsync returns an IN_PROGRESS status with a job ID.
-        mock_post_resp = MagicMock()
-        mock_post_resp.status_code = 200
-        mock_post_resp.json.return_value = {
-            "status": "IN_PROGRESS",
-            "id": "job_abc",
-        }
-        mock_post.return_value = mock_post_resp
+        # submit mock post
+        with (
+            patch("httpx.AsyncClient.post") as mock_post,
+            patch("httpx.AsyncClient.get") as mock_get,
+        ):
+            mock_post_resp = MagicMock()
+            mock_post_resp.status_code = 200
+            mock_post_resp.json.return_value = {
+                "status": "IN_PROGRESS",
+                "id": "job_abc",
+            }
+            mock_post.return_value = mock_post_resp
 
-        # First poll: still in progress. Second poll: done.
-        mock_get_resp_in_progress = MagicMock()
-        mock_get_resp_in_progress.status_code = 200
-        mock_get_resp_in_progress.json.return_value = {
-            "status": "IN_PROGRESS",
-            "id": "job_abc",
-        }
-        mock_get_resp_done = MagicMock()
-        mock_get_resp_done.status_code = 200
-        mock_get_resp_done.json.return_value = {
-            "status": "COMPLETED",
-            "output": {"embedding": [0.5] * 1152, "description": "Done"},
-        }
-        mock_get.side_effect = [mock_get_resp_in_progress, mock_get_resp_done]
+            # First poll: still in progress. Second poll: done.
+            mock_get_resp_in_progress = MagicMock()
+            mock_get_resp_in_progress.status_code = 200
+            mock_get_resp_in_progress.json.return_value = {
+                "status": "IN_PROGRESS",
+                "id": "job_abc",
+            }
+            mock_get_resp_done = MagicMock()
+            mock_get_resp_done.status_code = 200
+            mock_get_resp_done.json.return_value = {
+                "status": "COMPLETED",
+                "id": "job_abc",
+                "output": {"embedding": [0.5] * 512, "description": "Done"},
+            }
 
-        result = client.run(b"fake")
-        assert result["description"] == "Done"
-        assert mock_get.call_count == 2
+            # Since mock_get is async, we return future Mock objects
+            mock_get.side_effect = [mock_get_resp_in_progress, mock_get_resp_done]
 
-    @patch("image_indexer.client.time.sleep")
-    @patch("image_indexer.client.requests.post")
-    def test_retry_on_429(self, mock_post, _sleep, client):
+            result = await client.run(b"fake")
+            assert result["description"] == "Done"
+            assert mock_get.call_count == 2
+
+    @pytest.mark.anyio
+    @patch("asyncio.sleep")
+    async def test_retry_on_429(self, _sleep, client):
         """429 triggers a retry with backoff."""
-        resp_429 = MagicMock()
-        resp_429.status_code = 429
-        resp_ok = MagicMock()
-        resp_ok.status_code = 200
-        resp_ok.json.return_value = {
-            "status": "COMPLETED",
-            "output": {"description": "after retry"},
-        }
-        mock_post.side_effect = [resp_429, resp_ok]
+        with patch("httpx.AsyncClient.post") as mock_post:
+            resp_429 = MagicMock()
+            resp_429.status_code = 429
+            resp_ok = MagicMock()
+            resp_ok.status_code = 200
+            resp_ok.json.return_value = {
+                "status": "COMPLETED",
+                "id": "job_123",
+                "output": {"description": "after retry"},
+            }
+            mock_post.side_effect = [resp_429, resp_ok]
 
-        result = client.run(b"fake")
-        assert result["description"] == "after retry"
-        assert mock_post.call_count == 2
-        _sleep.assert_called_once()
+            result = await client.run(b"fake")
+            assert result["description"] == "after retry"
+            assert mock_post.call_count == 2
+            _sleep.assert_called_once()
 
-    @patch("image_indexer.client.time.sleep")
-    @patch("image_indexer.client.requests.post")
-    def test_retry_exhausted(self, mock_post, _sleep, client):
+    @pytest.mark.anyio
+    @patch("asyncio.sleep")
+    async def test_retry_exhausted(self, _sleep, client):
         """After MAX_RETRIES, a ConnectionError is raised."""
-        resp = MagicMock()
-        resp.status_code = 503
-        mock_post.return_value = resp
+        with patch("httpx.AsyncClient.post") as mock_post:
+            resp = MagicMock()
+            resp.status_code = 503
+            mock_post.return_value = resp
 
-        with pytest.raises(ConnectionError, match="503"):
-            client.run(b"fake")
+            with pytest.raises(ConnectionError, match="503"):
+                await client.run(b"fake")

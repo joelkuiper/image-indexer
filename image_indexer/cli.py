@@ -14,12 +14,13 @@ Design:
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import click
 
@@ -217,6 +218,102 @@ def search(query, semantic, lexical, structured, limit):
 # ── index ───────────────────────────────────────────────────────────────────
 
 
+async def async_index_dir(
+    ctx: click.Context,
+    db: Any,
+    image_paths: Sequence[Path],
+    client: Any,
+    dry_run: bool,
+) -> dict[str, int]:
+    """Asynchronously process and upload all images concurrently."""
+    from image_indexer.db import upsert_image
+    from image_indexer.preprocess import async_preprocess, sha256_bytes
+
+    stats = {"indexed": 0, "skipped": 0, "failed": 0}
+
+    async def process_one(path: Path) -> tuple[str, Any]:
+        """Runs pipeline for one image. Returns status ('indexed', 'skipped', 'failed')."""
+        nonlocal db, client, dry_run
+
+        # 1. SHA-256 dedup check
+        try:
+            # CPU bound read & hash, done in thread pool to avoid blocking
+            file_bytes = await asyncio.to_thread(path.read_bytes)
+            digest = sha256_bytes(file_bytes)
+            existing = db.execute(
+                "SELECT id FROM images WHERE sha256 = ?", (digest,)
+            ).fetchone()
+            if existing:
+                log(ctx, f"  {path.name} already indexed, skipping")
+                return "skipped", None
+        except OSError as e:
+            log(ctx, f"  {path.name} failed file read: {e}")
+            return "failed", None
+
+        # 2. Async Preprocess (resizing in ThreadPool)
+        prep = await async_preprocess(path)
+        if prep.skipped:
+            log(ctx, f"  {path.name} preprocessing skipped: {prep.skip_reason}")
+            return "skipped", None
+
+        if dry_run:
+            log(ctx, f"  {path.name} preprocessed [Dry-run]")
+            return "indexed", None
+
+        # 3. Parallel RunPod call (non-blocking Network request)
+        log(ctx, f"  {path.name} uploading to RunPod...")
+        try:
+            result = await client.run(prep.jpeg_bytes, task="all")
+        except Exception as e:
+            log(ctx, f"  {path.name} RunPod inference failed: {e}")
+            return "failed", None
+
+        # 4. Return results for serial database write
+        meta = {
+            "path": str(prep.path),
+            "sha256": prep.sha256,
+            "file_size": prep.file_size,
+            "format": prep.disk_format,
+            "width": prep.orig_width,
+            "height": prep.orig_height,
+            "description": result.get("description"),
+            "model_caption": settings.get(
+                "caption_model_id", "Qwen/Qwen3-VL-4B-Instruct"
+            ),
+            "model_embed": settings.get(
+                "embed_model_id", "openai/clip-vit-base-patch32"
+            ),
+        }
+        return "indexed", (meta, result.get("embedding"))
+
+    # Spawn all process tasks concurrently
+    tasks = [process_one(p) for p in image_paths]
+
+    # As they complete, safely serialize SQLite writes (prevents lockups/race conditions)
+    for future in asyncio.as_completed(tasks):
+        status, db_payload = await future
+
+        if status == "skipped":
+            stats["skipped"] += 1
+        elif status == "failed":
+            stats["failed"] += 1
+        elif status == "indexed":
+            if db_payload:
+                meta, embedding = db_payload
+                try:
+                    # Write serialised to DB
+                    upsert_image(db, meta, embedding=embedding)
+                    log(ctx, f"  ✓ Saved {Path(meta['path']).name} to database")
+                    stats["indexed"] += 1
+                except Exception as e:
+                    log(ctx, f"  ✗ Database write failed: {e}")
+                    stats["failed"] += 1
+            else:
+                stats["indexed"] += 1
+
+    return stats
+
+
 @main.command()
 @click.argument(
     "directory", type=click.Path(exists=True, file_okay=False, resolve_path=True)
@@ -231,8 +328,8 @@ def index(directory, endpoint_id, api_key, dry_run):
     Idempotent: re-running skips already-indexed files (SHA-256 dedup).
     """
     ctx = click.get_current_context()
-    from image_indexer.db import connect, upsert_image
-    from image_indexer.preprocess import preprocess, scan_directory, sha256_bytes
+    from image_indexer.db import connect
+    from image_indexer.preprocess import scan_directory
 
     if not dry_run and not endpoint_id:
         click.echo("Error: --endpoint-id or RUNPOD_ENDPOINT_ID required", err=True)
@@ -258,64 +355,9 @@ def index(directory, endpoint_id, api_key, dry_run):
 
         client = RunPodClient(endpoint_id=endpoint_id, api_key=api_key)
 
-    stats: dict[str, int] = {"indexed": 0, "skipped": 0, "failed": 0}
-
-    for path in image_paths:
-        log(ctx, f"  {path.name}...")
-
-        # SHA-256 dedup against database.
-        try:
-            digest = sha256_bytes(path.read_bytes())
-            existing = db.execute(
-                "SELECT id FROM images WHERE sha256 = ?", (digest,)
-            ).fetchone()
-            if existing:
-                log(ctx, "    already indexed")
-                stats["skipped"] += 1
-                continue
-        except OSError:
-            stats["failed"] += 1
-            continue
-
-        prep = preprocess(path)
-        if prep.skipped:
-            log(ctx, f"    skipped: {prep.skip_reason}")
-            stats["skipped"] += 1
-            continue
-
-        if dry_run:
-            stats["indexed"] += 1
-            continue
-
-        assert client is not None
-        try:
-            result = client.run(prep.jpeg_bytes, task="all")
-        except Exception as e:
-            log(ctx, f"    inference failed: {e}")
-            stats["failed"] += 1
-            continue
-
-        meta = {
-            "path": str(prep.path),
-            "sha256": prep.sha256,
-            "file_size": prep.file_size,
-            "format": prep.disk_format,
-            "width": prep.orig_width,
-            "height": prep.orig_height,
-            "description": result.get("description"),
-            "model_caption": settings.get(
-                "caption_model_id", "Qwen/Qwen3-VL-4B-Instruct"
-            ),
-            "model_embed": settings.get(
-                "embed_model_id", "openai/clip-vit-base-patch32"
-            ),
-        }
-        try:
-            upsert_image(db, meta, embedding=result.get("embedding"))
-            stats["indexed"] += 1
-        except Exception as e:
-            log(ctx, f"    db error: {e}")
-            stats["failed"] += 1
+    # Execute our centralized async event loop!
+    log(ctx, "Starting concurrent indexing pipeline...")
+    stats = asyncio.run(async_index_dir(ctx, db, image_paths, client, dry_run))
 
     output: dict[str, Any] = {**stats, "database": str(ctx.obj["db_path"])}
 

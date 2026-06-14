@@ -5,7 +5,7 @@ Responsibilities:
   2. Read basic file-level metadata (size, mtime, on-disk format, original dimensions).
   3. Apply EXIF orientation so the pixels match what a human sees.
   4. Resize to a max ~1 MP bounding box (Lanczos) — keeps enough detail for
-     both SigLIP2 (384 px input) and Qwen3-VL (dynamic tiles) while cutting
+     both CLIP (224 px input) and Qwen3-VL (dynamic tiles) while cutting
      a 40 MP photo to ~150 KB JPEG for the RunPod payload.
   5. Encode as optimised JPEG bytes (ready for base64 + HTTP POST).
 
@@ -19,6 +19,7 @@ Install the ``image-indexer[heif]`` extra to enable them.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -116,7 +117,7 @@ def preprocess(
     max_dimension: int = MAX_DIMENSION,
     jpeg_quality: int = JPEG_QUALITY,
 ) -> PreprocessedImage:
-    """Read, fix orientation, resize, encode as JPEG bytes.
+    """Read, fix orientation, resize, encode as JPEG bytes (Synchronous, CPU-heavy).
 
     Returns a ``PreprocessedImage`` with ``jpeg_bytes`` ready for base64
     encoding. If the file cannot be opened or decoded, the returned object
@@ -231,6 +232,19 @@ def preprocess(
             skipped=True,
             skip_reason=str(e),
         )
+
+
+async def async_preprocess(
+    path: Path,
+    max_dimension: int = MAX_DIMENSION,
+    jpeg_quality: int = JPEG_QUALITY,
+) -> PreprocessedImage:
+    """Asynchronous wrapper around preprocess.
+
+    Delegates the CPU-bound Pillow decompression, rotation and downscaling to
+    an OS thread pool executor so it doesn't block the asyncio event loop.
+    """
+    return await asyncio.to_thread(preprocess, path, max_dimension, jpeg_quality)
 
 
 def scan_directory(directory: Path) -> list[Path]:
