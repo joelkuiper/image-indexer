@@ -2,13 +2,12 @@
 """Re-embed processed images in the local SQLite db using OpenAI CLIP.
 
 Avoids re-running the heavy Qwen3-VL caption generator.
-Loads local CLIP (~150MB, fast on CPU) to overwrite the 1152-d SigLIP2 vectors 
+Loads local CLIP (~150MB, fast on CPU) to overwrite the 1152-d SigLIP2 vectors
 with 512-d CLIP vectors for optimal cosine-similarity search.
 """
+
 from __future__ import annotations
 
-import sqlite3
-import struct
 import time
 from pathlib import Path
 
@@ -67,16 +66,18 @@ def main():
         try:
             # Load and preprocess minimally (clip-processor expects PIL image)
             img = Image.open(path).convert("RGB")
-            
+
             # Embed image in CLIP shared space
+            assert embedder._processor is not None
             inputs = embedder._processor(images=[img], return_tensors="pt")
+            assert embedder._model is not None
             with torch.no_grad():
                 outputs = embedder._model.get_image_features(**inputs)
                 if hasattr(outputs, "pooler_output"):
                     feats = outputs.pooler_output
                 else:
                     feats = outputs
-            
+
             feats = torch.nn.functional.normalize(feats, p=2, dim=-1)
             embedding = feats[0].cpu().tolist()
 
@@ -93,7 +94,7 @@ def main():
                 (row_id, serialize_f32(embedding)),
             )
             db.commit()
-            print(f"    ✓ Updated embedding (512-d) saved to database.")
+            print("    ✓ Updated embedding (512-d) saved to database.")
 
         except Exception as e:
             print(f"    ✗ Failed to re-embed: {e}")

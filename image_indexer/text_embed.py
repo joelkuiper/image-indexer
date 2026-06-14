@@ -9,20 +9,22 @@ Usage:
     vec = embedder.embed("a black and white photo of a waterfall")
     # vec = [float x 512], L2-normalised
 """
+
 from __future__ import annotations
 
 import torch
 from transformers import CLIPModel, CLIPProcessor
 
-MODEL_ID = "openai/clip-vit-base-patch32"
-TEXT_EMBED_DIM = 512
+from image_indexer.config import settings
 
 
 class TextEmbedder:
     """Local CLIP text encoder. Lazy-loads on first call."""
 
-    def __init__(self, model_id: str = MODEL_ID):
-        self.model_id = model_id
+    def __init__(self, model_id: str | None = None):
+        self.model_id = model_id or settings.get(
+            "embed_model_id", "openai/clip-vit-base-patch32"
+        )
         self._model = None
         self._processor = None
 
@@ -36,7 +38,7 @@ class TextEmbedder:
             ).eval()
 
     def embed(self, text: str | list[str]) -> list[float] | list[list[float]]:
-        """Embed one or more text queries into the CLIP 512-d space.
+        """Embed one or more text queries into the CLIP shared space.
 
         Returns L2-normalised vectors compatible with sqlite-vec cosine search.
         """

@@ -1,0 +1,20 @@
+# Image Indexer Configuration
+# Shared single source of truth for local CLI and remote workers.
+
+[default]
+# Database configuration
+db_path = "~/.local/share/image-indexer/index.db"
+
+# Embedding space configurations (CLIP Model)
+embed_model_id = "openai/clip-vit-base-patch32"
+embed_dim = 512
+
+# Caption / VLM Configurations (Qwen3-VL Model)
+caption_model_id = "Qwen/Qwen3-VL-4B-Instruct"
+
+# Client options
+runpod_api_base = "https://api.runpod.ai/v2"
+
+# Terminal display settings for humans
+cli_desc_wrap_len = 160  # Expand display to fit rich captions nicely
+cli_max_results = 10

@@ -14,9 +14,9 @@ Stores results in /tmp/idx_e2e_test.db for CLI testing.
 from __future__ import annotations
 
 import io
-import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import torch
 from PIL import Image
@@ -58,14 +58,14 @@ def load_models(embedder: TextEmbedder):
         device_map="cpu",
         dtype=None,
     ).eval()
-    caption_model.generation_config.pad_token_id = caption_processor.tokenizer.eos_token_id
+    caption_model.generation_config.pad_token_id = (
+        caption_processor.tokenizer.eos_token_id
+    )
     print(f"  Models loaded in {time.time() - t0:.0f}s")
     return caption_processor, caption_model
 
 
-def caption_image(
-    img: Image.Image, caption_processor: AutoProcessor, caption_model
-) -> str:
+def caption_image(img: Image.Image, caption_processor: Any, caption_model: Any) -> str:
     """Generate a caption using Qwen3-VL-4B."""
     messages = [
         {
@@ -95,6 +95,7 @@ def caption_image(
 
 def embed_image(img: Image.Image, embedder: TextEmbedder) -> list:
     """Generate SigLIP2 image embedding."""
+    assert embedder._processor is not None
     embed_input = embedder._processor(images=[img], return_tensors="pt")
     assert embedder._model is not None
     with torch.no_grad():

@@ -1,4 +1,4 @@
-"""idx CLI -- visual memory search.
+"""idx CLI — visual memory search.
 
 Commands:
   status   Show database statistics
@@ -17,12 +17,18 @@ from __future__ import annotations
 import functools
 import json
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
 import click
 
-DEFAULT_DB = Path.home() / ".local" / "share" / "image-indexer" / "index.db"
+from image_indexer.config import settings
+
+# Resolve default DB path from dynaconf
+DEFAULT_DB_PATH = Path(
+    settings.get("db_path", "~/.local/share/image-indexer/index.db")
+).expanduser()
 
 # Exit codes
 EXIT_OK = 0
@@ -42,7 +48,7 @@ def common_options(f):
         "--db",
         "db_path",
         type=click.Path(),
-        default=str(DEFAULT_DB),
+        default=str(DEFAULT_DB_PATH),
         help="Database path",
     )
     @functools.wraps(f)
@@ -74,14 +80,14 @@ def log(ctx, msg):
 
 @click.group()
 def main():
-    """idx -- visual memory search.
+    """idx — visual memory search.
 
     Find anything with pixels by what you remember, not what you named it.
     """
     pass
 
 
-# -- status ------------------------------------------------------------------
+# ── status ──────────────────────────────────────────────────────────────────
 
 
 @main.command()
@@ -116,7 +122,7 @@ def status():
     sys.exit(EXIT_OK)
 
 
-# -- search ------------------------------------------------------------------
+# ── search ──────────────────────────────────────────────────────────────────
 
 
 @main.command()
@@ -151,7 +157,7 @@ def search(query, semantic, lexical, structured, limit):
         from image_indexer.text_embed import TextEmbedder
 
         embedder = TextEmbedder()
-        log(ctx, "Embedding query via SigLIP2 (local)...")
+        log(ctx, "Embedding query via CLIP (local)...")
         query_vec = cast(list[float], embedder.embed(query))
         from image_indexer.db import search_semantic
 
@@ -181,23 +187,34 @@ def search(query, semantic, lexical, structured, limit):
         if not rows:
             click.echo("No results.")
             return
+
+        wrap_width = settings.get("cli_desc_wrap_len", 160)
         for row in rows:
             path = row.get("path", "?")
-            desc = row.get("description", "")[:80]
+            desc = row.get("description", "")
+
+            # Format and wrap description cleanly
+            if desc:
+                # Wrap long text cleanly to wrap_width, indented under path
+                desc_lines = textwrap.wrap(desc, width=wrap_width)
+                formatted_desc = "\n".join(f"  {line}" for line in desc_lines)
+            else:
+                formatted_desc = "  (No omschrijving)"
+
             meta = ""
             if row.get("distance") is not None:
                 meta = f"  dist={row['distance']:.4f}"
             elif row.get("score") is not None:
                 meta = f"  score={row['score']:.3f}"
+
             click.echo(f"{path}{meta}")
-            if desc:
-                click.echo(f"  {desc}")
+            click.echo(formatted_desc)
 
     emit(ctx, results, summary)
     sys.exit(EXIT_OK)
 
 
-# -- index -------------------------------------------------------------------
+# ── index ───────────────────────────────────────────────────────────────────
 
 
 @main.command()
@@ -286,8 +303,12 @@ def index(directory, endpoint_id, api_key, dry_run):
             "width": prep.orig_width,
             "height": prep.orig_height,
             "description": result.get("description"),
-            "model_caption": "Qwen/Qwen3-VL-4B-Instruct",
-            "model_embed": "google/siglip2-so400m-patch16-384",
+            "model_caption": settings.get(
+                "caption_model_id", "Qwen/Qwen3-VL-4B-Instruct"
+            ),
+            "model_embed": settings.get(
+                "embed_model_id", "openai/clip-vit-base-patch32"
+            ),
         }
         try:
             upsert_image(db, meta, embedding=result.get("embedding"))

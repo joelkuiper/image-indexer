@@ -13,7 +13,8 @@ dependencies = [
     "accelerate>=0.27.0",
     "sqlite-vec>=0.1.9",
     "click>=8.1.7",
-    "requests>=2.31.0"
+    "requests>=2.31.0",
+    "dynaconf>=3.2.4"
 ]
 
 [project.optional-dependencies]

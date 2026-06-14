@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from image_indexer.text_embed import TEXT_EMBED_DIM, TextEmbedder
+from image_indexer.config import settings
+from image_indexer.text_embed import TextEmbedder
 
 
 @pytest.fixture(scope="module")
@@ -16,8 +17,9 @@ def embedder():
 class TestTextEmbedder:
     def test_returns_correct_dim(self, embedder):
         vec = embedder.embed("a photo of a waterfall")
+        dim = settings.get("embed_dim", 512)
         assert isinstance(vec, list)
-        assert len(vec) == TEXT_EMBED_DIM
+        assert len(vec) == dim
 
     def test_returns_floats(self, embedder):
         vec = embedder.embed("sunset over mountains")
@@ -39,9 +41,10 @@ class TestTextEmbedder:
 
     def test_batch_mode(self, embedder):
         vecs = embedder.embed(["waterfall", "mountain", "beach"])
+        dim = settings.get("embed_dim", 512)
         assert isinstance(vecs, list)
         assert len(vecs) == 3
-        assert all(len(v) == TEXT_EMBED_DIM for v in vecs)
+        assert all(len(v) == dim for v in vecs)
 
     def test_deterministic(self, embedder):
         v1 = embedder.embed("a red door on a grey wall")
