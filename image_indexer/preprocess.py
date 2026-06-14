@@ -16,6 +16,7 @@ HEIC/HEIF formats (common for iPhone photos) require ``pillow-heif`` to be
 installed as a Pillow plugin. If missing, those files are skipped gracefully.
 Install the ``image-indexer[heif]`` extra to enable them.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,7 +31,8 @@ log = logging.getLogger(__name__)
 
 # Register pillow-heif plugin if available so HEIC/HEIF files can be decoded.
 try:
-    import pillow_heif
+    import pillow_heif  # ty: ignore[unresolved-import]
+
     pillow_heif.register_heif_opener()
     pillow_heif.register_avif_opener()
     log.debug("pillow-heif loaded — HEIC/HEIF/AVIF support enabled")
@@ -41,9 +43,19 @@ except ImportError:
 # 1024x_wide_, portrait _tall_; panoramas are clipped to fit within the box.
 MAX_DIMENSION = 1024
 JPEG_QUALITY = 85
-IMAGE_EXTENSIONS = frozenset({
-    ".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".tiff", ".tif", ".bmp",
-})
+IMAGE_EXTENSIONS = frozenset(
+    {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".heic",
+        ".heif",
+        ".webp",
+        ".tiff",
+        ".tif",
+        ".bmp",
+    }
+)
 
 
 @dataclass
@@ -64,6 +76,7 @@ class PreprocessedImage:
         skipped:         True when the file could not be processed.
         skip_reason:     Human-readable reason when ``skipped=True``.
     """
+
     path: Path
     sha256: str
     file_size: int
@@ -117,10 +130,17 @@ def preprocess(
         raw_bytes = path.read_bytes()
     except OSError as e:
         return PreprocessedImage(
-            path=path, sha256="", file_size=0,
-            orig_width=0, orig_height=0, resized_width=0, resized_height=0,
-            disk_format="unknown", jpeg_bytes=b"",
-            skipped=True, skip_reason=f"cannot read file: {e}",
+            path=path,
+            sha256="",
+            file_size=0,
+            orig_width=0,
+            orig_height=0,
+            resized_width=0,
+            resized_height=0,
+            disk_format="unknown",
+            jpeg_bytes=b"",
+            skipped=True,
+            skip_reason=f"cannot read file: {e}",
         )
 
     file_size = len(raw_bytes)
@@ -130,26 +150,39 @@ def preprocess(
         raw = Image.open(io.BytesIO(raw_bytes))
     except Exception as e:
         return PreprocessedImage(
-            path=path, sha256=digest, file_size=file_size,
-            orig_width=0, orig_height=0, resized_width=0, resized_height=0,
-            disk_format="unknown", jpeg_bytes=b"",
-            skipped=True, skip_reason=f"cannot decode image: {e}",
+            path=path,
+            sha256=digest,
+            file_size=file_size,
+            orig_width=0,
+            orig_height=0,
+            resized_width=0,
+            resized_height=0,
+            disk_format="unknown",
+            jpeg_bytes=b"",
+            skipped=True,
+            skip_reason=f"cannot decode image: {e}",
         )
 
     try:
         # On-disk dimensions, reported before any transformation.
         orig_w, orig_h = raw.size
-        disk_format = (raw.format or path.suffix.lstrip(".").lstrip(".").upper())
+        disk_format = raw.format or path.suffix.lstrip(".").lstrip(".").upper()
 
         # EXIF orientation: rotate/flip pixels so "up" is actually up.
         img = ImageOps.exif_transpose(raw)
         if img is None:
             return PreprocessedImage(
-                path=path, sha256=digest, file_size=file_size,
-                orig_width=orig_w, orig_height=orig_h,
-                resized_width=0, resized_height=0,
-                disk_format=disk_format, jpeg_bytes=b"",
-                skipped=True, skip_reason="exif_transpose returned None",
+                path=path,
+                sha256=digest,
+                file_size=file_size,
+                orig_width=orig_w,
+                orig_height=orig_h,
+                resized_width=0,
+                resized_height=0,
+                disk_format=disk_format,
+                jpeg_bytes=b"",
+                skipped=True,
+                skip_reason="exif_transpose returned None",
             )
 
         img = img.convert("RGB")
@@ -186,10 +219,17 @@ def preprocess(
     except Exception as e:  # noqa: BLE001
         log.warning("preprocess failed for %s: %s", path, e)
         return PreprocessedImage(
-            path=path, sha256=digest, file_size=file_size,
-            orig_width=0, orig_height=0, resized_width=0, resized_height=0,
-            disk_format="unknown", jpeg_bytes=b"",
-            skipped=True, skip_reason=str(e),
+            path=path,
+            sha256=digest,
+            file_size=file_size,
+            orig_width=0,
+            orig_height=0,
+            resized_width=0,
+            resized_height=0,
+            disk_format="unknown",
+            jpeg_bytes=b"",
+            skipped=True,
+            skip_reason=str(e),
         )
 
 

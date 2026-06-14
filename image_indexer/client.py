@@ -10,6 +10,7 @@ Usage:
     result = client.run(image_bytes, task="all")
     # result = {"embedding": [...], "description": "..."}
 """
+
 from __future__ import annotations
 
 import base64
@@ -122,11 +123,15 @@ class RunPodClient:
                 if status == "COMPLETED":
                     return self._extract_output(data)
                 if status == "FAILED":
-                    raise RuntimeError(f"RunPod job failed: {data.get('error', 'unknown')}")
+                    raise RuntimeError(
+                        f"RunPod job failed: {data.get('error', 'unknown')}"
+                    )
 
             time.sleep(poll_interval)
 
-        raise TimeoutError(f"RunPod job {job_id} did not complete within {self.timeout}s")
+        raise TimeoutError(
+            f"RunPod job {job_id} did not complete within {self.timeout}s"
+        )
 
     @staticmethod
     def _extract_output(data: dict) -> dict:

@@ -1,4 +1,4 @@
-"""idx CLI — visual memory search.
+"""idx CLI -- visual memory search.
 
 Commands:
   status   Show database statistics
@@ -11,12 +11,14 @@ Design:
   - Progress to stderr, data to stdout
   - No interactive prompts ever
 """
+
 from __future__ import annotations
 
 import functools
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -31,10 +33,18 @@ EXIT_PARTIAL = 3
 
 def common_options(f):
     """Decorator that adds --json, --verbose, --db to any click command."""
-    @click.option("--json", "output_json", is_flag=True, help="JSON output (for agents)")
+
+    @click.option(
+        "--json", "output_json", is_flag=True, help="JSON output (for agents)"
+    )
     @click.option("--verbose", is_flag=True, help="Show progress to stderr")
-    @click.option("--db", "db_path", type=click.Path(), default=str(DEFAULT_DB),
-                  help="Database path")
+    @click.option(
+        "--db",
+        "db_path",
+        type=click.Path(),
+        default=str(DEFAULT_DB),
+        help="Database path",
+    )
     @functools.wraps(f)
     def wrapper(*args, output_json, verbose, db_path, **kwargs):
         ctx = click.get_current_context()
@@ -42,6 +52,7 @@ def common_options(f):
         ctx.obj.update(json=output_json, verbose=verbose, db_path=Path(db_path))
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         return f(*args, **kwargs)
+
     return wrapper
 
 
@@ -63,14 +74,15 @@ def log(ctx, msg):
 
 @click.group()
 def main():
-    """idx — visual memory search.
+    """idx -- visual memory search.
 
     Find anything with pixels by what you remember, not what you named it.
     """
     pass
 
 
-# ── status ──────────────────────────────────────────────────────────────────
+# -- status ------------------------------------------------------------------
+
 
 @main.command()
 @common_options
@@ -88,7 +100,7 @@ def status():
     image_count = db.execute("SELECT COUNT(*) FROM images").fetchone()[0]
     last = db.execute("SELECT MAX(updated_at) FROM images").fetchone()[0]
 
-    data = {
+    data: dict[str, Any] = {
         "database": str(ctx.obj["db_path"]),
         "images": image_count,
         "last_indexed": last,
@@ -104,7 +116,8 @@ def status():
     sys.exit(EXIT_OK)
 
 
-# ── search ──────────────────────────────────────────────────────────────────
+# -- search ------------------------------------------------------------------
+
 
 @main.command()
 @click.argument("query")
@@ -122,9 +135,7 @@ def search(query, semantic, lexical, structured, limit):
     from image_indexer.db import connect
 
     if not (semantic or lexical or structured):
-        click.echo(
-            "Error: pick --semantic, --lexical, or --structured", err=True
-        )
+        click.echo("Error: pick --semantic, --lexical, or --structured", err=True)
         sys.exit(EXIT_USER_ERROR)
 
     try:
@@ -133,23 +144,27 @@ def search(query, semantic, lexical, structured, limit):
         click.echo(f"Error: cannot open database: {e}", err=True)
         sys.exit(EXIT_SYSTEM_ERROR)
 
-    results = []
+    results: list[dict[str, Any]] = []
 
     if semantic:
         from typing import cast
         from image_indexer.text_embed import TextEmbedder
+
         embedder = TextEmbedder()
         log(ctx, "Embedding query via SigLIP2 (local)...")
         query_vec = cast(list[float], embedder.embed(query))
         from image_indexer.db import search_semantic
+
         results.extend(search_semantic(db, query_vec, k=limit))
 
     if lexical:
         from image_indexer.db import search_lexical
+
         results.extend(search_lexical(db, query, k=limit))
 
     if structured:
         from image_indexer.db import search_structured
+
         results.extend(search_structured(db, query))
 
     # Deduplicate by id when multiple modes overlap.
@@ -182,18 +197,16 @@ def search(query, semantic, lexical, structured, limit):
     sys.exit(EXIT_OK)
 
 
-# ── index ───────────────────────────────────────────────────────────────────
+# -- index -------------------------------------------------------------------
+
 
 @main.command()
 @click.argument(
     "directory", type=click.Path(exists=True, file_okay=False, resolve_path=True)
 )
-@click.option("--endpoint-id", envvar="RUNPOD_ENDPOINT_ID",
-              help="RunPod endpoint ID")
-@click.option("--api-key", envvar="RUNPOD_API_KEY",
-              help="RunPod API key")
-@click.option("--dry-run", is_flag=True,
-              help="Preprocess only, skip RunPod")
+@click.option("--endpoint-id", envvar="RUNPOD_ENDPOINT_ID", help="RunPod endpoint ID")
+@click.option("--api-key", envvar="RUNPOD_API_KEY", help="RunPod API key")
+@click.option("--dry-run", is_flag=True, help="Preprocess only, skip RunPod")
 @common_options
 def index(directory, endpoint_id, api_key, dry_run):
     """Index a directory of images.
@@ -225,9 +238,10 @@ def index(directory, endpoint_id, api_key, dry_run):
     client = None
     if not dry_run:
         from image_indexer.client import RunPodClient
+
         client = RunPodClient(endpoint_id=endpoint_id, api_key=api_key)
 
-    stats = {"indexed": 0, "skipped": 0, "failed": 0}
+    stats: dict[str, int] = {"indexed": 0, "skipped": 0, "failed": 0}
 
     for path in image_paths:
         log(ctx, f"  {path.name}...")
@@ -256,6 +270,7 @@ def index(directory, endpoint_id, api_key, dry_run):
             stats["indexed"] += 1
             continue
 
+        assert client is not None
         try:
             result = client.run(prep.jpeg_bytes, task="all")
         except Exception as e:
@@ -281,7 +296,7 @@ def index(directory, endpoint_id, api_key, dry_run):
             log(ctx, f"    db error: {e}")
             stats["failed"] += 1
 
-    stats["database"] = str(ctx.obj["db_path"])
+    output: dict[str, Any] = {**stats, "database": str(ctx.obj["db_path"])}
 
     def summary(s):
         click.echo(f"Indexed:  {s['indexed']}")
@@ -289,7 +304,7 @@ def index(directory, endpoint_id, api_key, dry_run):
         click.echo(f"Failed:   {s['failed']}")
         click.echo(f"Database: {s['database']}")
 
-    emit(ctx, stats, summary)
+    emit(ctx, output, summary)
     sys.exit(EXIT_PARTIAL if stats["failed"] > 0 else EXIT_OK)
 
 

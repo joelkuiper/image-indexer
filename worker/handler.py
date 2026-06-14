@@ -18,6 +18,8 @@ Response:
 import base64
 import io
 
+from typing import Any
+
 import runpod
 import torch
 from PIL import Image
@@ -74,6 +76,8 @@ def load_models():
 
 def embed_image(image: Image.Image) -> list[float]:
     """SigLIP2 image embedding, L2-normalised, as a plain Python float list."""
+    assert embed_processor is not None
+    assert embed_model is not None
     inputs = embed_processor(images=[image], return_tensors="pt").to(device)
     with torch.no_grad():
         feats = embed_model.get_image_features(**inputs)
@@ -91,6 +95,8 @@ CAPTION_PROMPT = (
 
 def caption_image(image: Image.Image) -> str:
     """Qwen3-VL caption via the chat-template API (handles vision tokens for us)."""
+    assert caption_processor is not None
+    assert caption_model is not None
     messages = [
         {
             "role": "user",
@@ -139,7 +145,7 @@ def handler(job):
     except Exception as e:  # noqa: BLE001 - report decode failures to caller
         return {"error": f"Failed to decode image: {e}"}
 
-    result = {"models": {}}
+    result: dict[str, Any] = {"models": {}}
     try:
         if task in ("embed", "all"):
             result["embedding"] = embed_image(image)

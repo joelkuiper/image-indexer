@@ -1,5 +1,5 @@
 """Tests for image_indexer.client."""
-import json
+
 from unittest.mock import MagicMock, patch
 
 import pytest

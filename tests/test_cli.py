@@ -1,7 +1,7 @@
 """Tests for image_indexer CLI (idx)."""
+
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -30,7 +30,11 @@ def photo_dir(tmp_path):
     """A temp dir with 3 small test images."""
     d = tmp_path / "photos"
     d.mkdir()
-    for name, colour in [("red.jpg", "red"), ("green.jpg", "green"), ("blue.jpg", "blue")]:
+    for name, colour in [
+        ("red.jpg", "red"),
+        ("green.jpg", "green"),
+        ("blue.jpg", "blue"),
+    ]:
         Image.new("RGB", (100, 100), colour).save(d / name, "JPEG")
     return str(d)
 
@@ -56,7 +60,9 @@ class TestSearch:
         assert "pick" in err
 
     def test_lexical_empty_db(self, db_path):
-        rc, out, err = run_idx("search", "hello", "--lexical", "--json", "--db", db_path)
+        rc, out, err = run_idx(
+            "search", "hello", "--lexical", "--json", "--db", db_path
+        )
         assert rc == 0
         data = json.loads(out)
         assert data == []
@@ -64,7 +70,9 @@ class TestSearch:
 
 class TestIndex:
     def test_dry_run(self, photo_dir, db_path):
-        rc, out, err = run_idx("index", photo_dir, "--dry-run", "--json", "--db", db_path)
+        rc, out, err = run_idx(
+            "index", photo_dir, "--dry-run", "--json", "--db", db_path
+        )
         assert rc == 0
         data = json.loads(out)
         assert data["indexed"] == 3

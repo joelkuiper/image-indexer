@@ -9,6 +9,7 @@ Runs the full data flow WITHOUT real models or RunPod:
 Usage:
     python scripts/e2e_demo.py
 """
+
 from __future__ import annotations
 
 import base64
@@ -22,11 +23,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "worker"))
 
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+import numpy as np  # noqa: E402
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
-from image_indexer import db
-from image_indexer.preprocess import preprocess
+from image_indexer import db  # noqa: E402
+from image_indexer.preprocess import preprocess  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +80,9 @@ def make_test_image(path: Path, colour: tuple[int, int, int], label: str) -> Pat
     img = Image.new("RGB", (3000, 2000), colour)  # 6 MP — triggers resize
     draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 120)
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 120
+        )
     except OSError:
         font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), label, font=font)
@@ -101,9 +104,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         photos = [
-            ("red_sunset.jpg",   (200, 60, 30),  "RED SUNSET"),
-            ("green_forest.jpg", (20, 160, 50),  "GREEN FOREST"),
-            ("blue_ocean.jpg",   (30, 80, 200),  "BLUE OCEAN"),
+            ("red_sunset.jpg", (200, 60, 30), "RED SUNSET"),
+            ("green_forest.jpg", (20, 160, 50), "GREEN FOREST"),
+            ("blue_ocean.jpg", (30, 80, 200), "BLUE OCEAN"),
         ]
 
         print("\n[1/5] Creating test images...")
@@ -137,7 +140,7 @@ def main() -> None:
             patch("handler.embed_image", side_effect=fake_embed_image),
             patch("handler.caption_image", side_effect=fake_caption_image),
         ):
-            from handler import handler
+            from handler import handler  # ty: ignore[unresolved-import]
 
             responses = []
             for prep in preprocessed:
@@ -149,7 +152,9 @@ def main() -> None:
                 assert len(resp["embedding"]) == EMBED_DIM
                 responses.append(resp)
                 caption_preview = resp["description"][:60]
-                print(f"  {prep.path.name:25s}  dim={resp['embedding_dim']}  caption='{caption_preview}...'")
+                print(
+                    f"  {prep.path.name:25s}  dim={resp['embedding_dim']}  caption='{caption_preview}...'"
+                )
 
         # 4. Store in SQLite
         print("\n[4/5] Storing in SQLite (in-memory DB)...")
@@ -169,7 +174,9 @@ def main() -> None:
             }
             row_id = db.upsert_image(conn, meta, embedding=resp["embedding"])
             ids.append(row_id)
-            print(f"  upserted id={row_id}  sha={prep.sha256[:16]}...  path={prep.path.name}")
+            print(
+                f"  upserted id={row_id}  sha={prep.sha256[:16]}...  path={prep.path.name}"
+            )
 
         # 5. Query
         print("\n[5/5] Querying the database...")
@@ -179,21 +186,25 @@ def main() -> None:
         red_vec[0] = 200 / 255  # red channel dominates
         red_vec = (red_vec / np.linalg.norm(red_vec)).tolist()
         semantic = db.search_semantic(conn, red_vec, k=3)
-        print(f"\n  Semantic search (query ≈ red):")
+        print("\n  Semantic search (query ≈ red):")
         for row in semantic:
-            print(f"    id={row['image_id']}  dist={row['distance']:.4f}  path={row['path']}")
+            print(
+                f"    id={row['image_id']}  dist={row['distance']:.4f}  path={row['path']}"
+            )
 
         # Lexical: search for "green"
         lexical = db.search_lexical(conn, "green", k=3)
-        print(f"\n  Lexical search ('green'):")
+        print("\n  Lexical search ('green'):")
         for row in lexical:
             print(f"    id={row['id']}  score={row['score']:.3f}  path={row['path']}")
 
         # Structured: filter by file size
         structured = db.search_structured(conn, "file_size > 0")
-        print(f"\n  Structured search (all rows, file_size > 0):")
+        print("\n  Structured search (all rows, file_size > 0):")
         for row in structured:
-            print(f"    id={row['id']}  {row['width']}x{row['height']}  {row['description'][:50]}...")
+            print(
+                f"    id={row['id']}  {row['width']}x{row['height']}  {row['description'][:50]}..."
+            )
 
     print(f"\n{'=' * 60}")
     print(f"  All {len(photos)} images processed end-to-end. Pipeline works! ✓")

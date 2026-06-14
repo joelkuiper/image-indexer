@@ -7,7 +7,6 @@ import pytest
 from PIL import Image
 from image_indexer.preprocess import (
     MAX_DIMENSION,
-    PreprocessedImage,
     _fit_within,
     is_image_file,
     preprocess,

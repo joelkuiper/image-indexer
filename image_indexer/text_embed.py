@@ -9,9 +9,9 @@ Usage:
     vec = embedder.embed("a black and white photo of a waterfall")
     # vec = [float x 1152], L2-normalised
 """
+
 from __future__ import annotations
 
-import numpy as np
 import torch
 from transformers import AutoModel, AutoProcessor
 
@@ -42,6 +42,8 @@ class TextEmbedder:
         Returns L2-normalised vectors compatible with sqlite-vec cosine search.
         """
         self._load()
+        assert self._processor is not None
+        assert self._model is not None
 
         single = isinstance(text, str)
         texts = [text] if single else text

@@ -1,4 +1,5 @@
 """Tests for image_indexer.text_embed."""
+
 from __future__ import annotations
 
 import pytest
