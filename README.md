@@ -1,73 +1,103 @@
 # Image Indexer
 
-Find anything with pixels by what you remember, not what you named it.
+An on-device visual memory search engine. Find anything with pixels by what you remember, not what you named it.
 
 ```bash
-idx search "black-and-white waterfall in Iceland" --semantic
-idx search "bayes theorem formula" --lexical
-idx search "camera_model = 'Nikon'" --structured
+idx search "philosophers studying geometry fresco" --semantic
+idx search "ssh config authorized_keys" --lexical
+idx search "width > 3000 AND format = 'PNG'" --structured
 ```
 
-Three composable search surfaces over one SQLite database:
+It supports everything with pixels: screenshots of terminal errors, whiteboard scribbles, system diagrams, slides, photos, and academic quotes.
 
-- **Semantic** — SigLIP2 vectors (text → 1152-d → cosine KNN)
-- **Lexical** — FTS5 over OCR'd text + Qwen3-VL captions
-- **Structured** — SQL on EXIF and metadata columns
+---
 
-## How it works
+## Design Principles
+
+1. **Vibes over Precision** — You don't need exact filenames. Ask for the visual vibe ("swirling cosmic light", "dark terminal screenshot") or textual cues ("error 500", "Bayes theorem").
+2. **First-Class OCR** — Pixels are text. Screenshots and photos are parsed under Qwen3-VL descriptors, feeding local FTS5 search surfaces directly.
+3. **Hybrid Query Engine** — Three composable search surfaces inside one single SQLite database:
+   - **Semantic** — OpenAI CLIP ViT-B-32 visual space (512-d text → image cosine similarity).
+   - **Lexical** — Pure FTS5 full-text indexing over Qwen3-VL details and transcribed OCR text.
+   - **Structured** — Standard relational SQL filters over EXIF, camera, lens, dimensions, and and filesystem metadata.
+4. **Local-First, Cloud-Compute** — Heavy generative descriptors (Qwen3-VL) are offloaded to RunPod Serverless GPUs during index periods. Retrieval is 100% on-device (local CLIP models of ~150MB run instantly on standard CPUs).
+5. **rsync-Friendly Ingestion** — Point-and-sync. No file watchers required. Intact Mac screenshots, downloads, and pictures sync to your Hetzner box via rsync, indexing via periodic cron-jobs.
+6. **Agentic & Pipe-Ready** — Returns parsed JSON formats via `--json` flags. No user-interactive prompts. Strict exit codes (0=Success, 1=User error, 2=System error, 3=Partial failure) for automated processes.
+
+---
+
+## Core Flow
 
 ```
-[ Images on disk ]
+[ Local Files ]
        │
-       ▼
-  preprocess ──► resize 40MP → 1MP JPEG, extract EXIF, SHA-256 dedup
+       ▼   (Local Preprocessing)
+  preprocess ──► 1MP downscale, extract original EXIF and SHA-256
        │
-       ▼
-[ RunPod GPU ] ──► SigLIP2 embedding (1152-d) + Qwen3-VL caption / OCR
+       ▼   (Non-blocking Concurrency — Async Semaphore limit: 10)
+[ RunPod GPU ] ──► Compute CLIP embedding + Qwen3-VL captions & OCR
        │
-       ▼
-[ SQLite ] ──► vec0 (vector) + FTS5 (text) + EXIF columns
+       ▼   (Serialised SQLite Writes)
+ [ SQLite DB ] ──► Store inside vec0 (embeddings), FTS5 (lexical), and images (relational)
        │
-       ▼
-  idx search ──► local SigLIP2 text encoder + sqlite-vec cosine KNN
+       ▼   (Local Retrieval — instant CPU execution)
+  idx search ──► Local CLIP text-encode + sqlite-vec cosine KNN
 ```
 
-Indexing requires a RunPod GPU endpoint (SigLIP2 + Qwen3-VL run on GPU).
-Searching runs entirely locally (text encoder is ~200MB, fits on CPU).
+---
 
-## Setup
+## CLI Usage
+
+Configure endpoints in `image_indexer/settings.toml` or override through environment variables.
+
+### Indexing
+
+The `index` command runs on a fully asynchronous pipeline, processing multiple images concurrently while safely serializing database writes in real-time.
 
 ```bash
-uv install
-uv run idx --help
+# Dry run — test local downscaling & metadata parsing without RunPod
+idx index /path/to/photos --dry-run --verbose
+
+# Production ingestion (submits async blocks to RunPod Serverless)
+export RUNPOD_ENDPOINT_ID="your-endpoint-id"
+export RUNPOD_API_KEY="rpa_your-api-key"
+idx index /path/to/photos --json
 ```
 
-## CLI
+### Searching
+
+No credentials or internet connections are required to query your indices.
 
 ```bash
-# Index a directory (requires RunPod endpoint)
-export RUNPOD_ENDPOINT_ID=...
-export RUNPOD_API_KEY=***idx index ~/Photos/2024 --verbose
+# Semantic "vibe" search (local text encoder)
+idx search "starry night sky or galaxy" --semantic
 
-# Semantic search (local, no RunPod needed)
-idx search "sunset over mountains" --semantic --json
+# Lexical search over transcribed text or rich captions
+idx search "docker port conflict Exception" --lexical --json
 
-# Lexical search over captions + OCR'd text
-idx search "error 500 gateway timeout" --lexical
+# Structured relational SQL filters
+idx search "camera_model = 'X-T5' AND focal_length = 23" --structured
 
-# Structured filter on metadata
-idx search "width > 3000 AND format = 'JPEG'" --structured
+# Composed mixed search (lexical + structured)
+idx search "whiteboard" --lexical --structured --where "format = 'PNG'"
+```
 
-# Database stats
+### Statistics
+
+```bash
 idx status --json
 ```
 
-Exit codes: `0` ok · `1` user error · `2` system error · `3` partial failure.
-All commands support `--json` for machine consumption.
+---
 
-## Tests
+## Verification & Testing
+
+Tests cover downscaling thresholds, correct EXIF transpositions, database triggers, and HTTP client retry loops.
 
 ```bash
+# Run full suite (50 passing tests)
 uv run pytest -v
-# 50 passing: preprocess(17) db(8) handler(4) client(7) text_embed(6) cli(8)
+
+# Run local end-to-end pipeline validation (mocks OpenAI/RunPod calls)
+uv run python scripts/e2e_demo.py
 ```
