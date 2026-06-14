@@ -12,7 +12,7 @@
 - [ ] Set up secure key-based SSH parameters (using restricted config commands to bypass agent validation friction).
 - [ ] Implement automated indexing via cron scheduler post-rsync sync.
 
-## 3. Signal Integration (Esther's Workspace)
+## 3. Signal Integration
 - [ ] Build Signal-based listener querying the database for "vibe" parameters.
 - [ ] Implement media-attachment responder with transcribed text sent as `alt-text`.
 - [ ] Add clean quality reports or curation checks ("You have 23 similar screenshots from today, want to clear them out?").
