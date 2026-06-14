@@ -1,7 +1,22 @@
 [project]
 name = "image-indexer"
 version = "0.1.0"
-description = "Add your description here"
+description = "On-device image indexing with local metadata extraction and serverless GPU visual semantic processing."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "runpod>=1.9.1",
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "transformers>=4.57.0",
+    "pillow>=10.2.0",
+    "accelerate>=0.27.0",
+    "sqlite-vec>=0.1.9",
+    "click>=8.1.7",
+    "requests>=2.31.0"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0"
+]
