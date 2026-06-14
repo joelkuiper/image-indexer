@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-
 from image_indexer.preprocess import (
     MAX_DIMENSION,
+    PreprocessedImage,
     _fit_within,
     is_image_file,
     preprocess,
     scan_directory,
-    sha256_file,
+    sha256_bytes,
 )
 
 
@@ -84,10 +84,10 @@ def test_is_image_file_no():
 # --- sha256_file ---
 
 
-def test_sha256_file_deterministic(tmp_path: Path):
-    p = tmp_path / "data.bin"
-    p.write_bytes(b"hello world")
-    assert sha256_file(p) == sha256_file(p)
+def test_sha256_bytes_deterministic():
+    data = b"hello world"
+    assert sha256_bytes(data) == sha256_bytes(data)
+    assert sha256_bytes(data) != sha256_bytes(b"different")
 
 
 # --- preprocess ---
@@ -102,6 +102,7 @@ def test_preprocess_small_image_unchanged(tiny_image: Path):
     assert result.resized_height == 80
     assert len(result.jpeg_bytes) > 0
     assert result.sha256  # non-empty hex digest
+    assert result.disk_format == "JPEG"
 
 
 def test_preprocess_large_image_resized(huge_image: Path):
@@ -145,12 +146,34 @@ def test_preprocess_broken_file(tmp_path: Path):
     result = preprocess(broken)
     assert result.skipped
     assert result.skip_reason
+    # SHA-256 is still set so the caller can record a rejected row.
+    assert result.sha256
+
+
+def test_preprocess_unreadable_file(tmp_path: Path):
+    """File we can't stat/read returns skipped with empty sha256."""
+    missing = tmp_path / "does_not_exist.jpg"
+    result = preprocess(missing)
+    assert result.skipped
+    assert "cannot read" in result.skip_reason
+    assert result.sha256 == ""
+
+
+def test_scan_directory_skips_unreadable(tmp_path: Path):
+    """Broken symlinks should not crash the scanner."""
+    (tmp_path / "good.jpg").write_bytes(b"fake")
+    bad = tmp_path / "bad.jpg"
+    bad.symlink_to(tmp_path / "nonexistent.jpg")
+    found = scan_directory(tmp_path)
+    names = [p.name for p in found]
+    assert "good.jpg" in names
+    # bad.jpg may or may not appear (depends on resolution); at least no crash.
 
 
 def test_preprocess_sha256_is_of_original(huge_image: Path):
     """SHA-256 must be of the *source* file, not the resized output."""
     result = preprocess(huge_image)
-    assert result.sha256 == sha256_file(huge_image)
+    assert result.sha256 == sha256_bytes(huge_image.read_bytes())
 
 
 # --- scan_directory ---

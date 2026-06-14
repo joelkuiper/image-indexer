@@ -1,22 +1,22 @@
-# Implementatie & Test TODO
+# Implementation & Testing TODO
 
-## 1. Lokaal Testen
-- [ ] Schrijf een lokale runner/testscript die de Docker image/handler container lokaal start en payloads verstuurt.
-- [ ] Valideer de integratie tussen `handler.py` en echte model loading/mocking lokaal.
-- [ ] Test de SQLite + `sqlite-vec` integratie via `pytest tests/test_db.py`.
+## 1. Local Testing
+- [ ] Write a local runner/test script that starts the Docker image/handler locally and sends payloads.
+- [ ] Validate the integration between `handler.py` and real model loading/mocking locally.
+- [ ] Test the SQLite + `sqlite-vec` integration via `pytest tests/test_db.py`.
 
 ## 2. Deployment
-- [ ] Valideer de dependencies en CUDA compatibiliteit in `worker/Dockerfile`.
-- [ ] Bouw en tag de Docker image met de juiste GHCR naamvallen.
-- [ ] Push de vision-worker image naar GitHub Packages (GHCR).
-- [ ] Configureer RunPod Serverless Endpoint met de gepushte image en de vereiste GPU tier (16GB/24GB VRAM).
+- [ ] Validate dependencies and CUDA compatibility in `worker/Dockerfile`.
+- [ ] Build and tag the Docker image with the correct GHCR namespace.
+- [ ] Push the vision-worker image to GitHub Packages (GHCR).
+- [ ] Configure the RunPod Serverless Endpoint with the pushed image and the required GPU tier (16 GB / 24 GB VRAM).
 
 ## 3. RunPod E2E Test
-- [ ] Schrijf een client script (`image_indexer/client.py` of test script) dat verbinding maakt met de live RunPod endpoint API.
-- [ ] Stuur een base64 gecodeerde afbeelding naar de endpoint en controleer of zowel de embedding (1152-d) als de beschrijving correct terugkomen.
-- [ ] Integreer dit resultaat in de lokale database pipeline om te valideren dat data weggeschreven wordt.
+- [ ] Write a client script (`image_indexer/client.py` or test script) that connects to the live RunPod endpoint API.
+- [ ] Send a base64-encoded image to the endpoint and verify both the embedding (1152-d) and description are returned correctly.
+- [ ] Integrate this result into the local database pipeline to validate data is persisted.
 
-## 4. Agentic-friendly CLI Opties
-- [ ] Ontwerp de CLI (`image_indexer/cli.py` of click app) met machine-parsable outputs (bijv. `--json` flag op alle commando's).
-- [ ] Zorg voor non-interactive defaults en duidelijke exit-codes zodat Esther (of andere AI-agents) makkelijk indexeringen kan draaien of queries kan uitvoeren zonder menselijke tussenkomst.
-- [ ] Implementeer robuuste error handling en duidelijke output logging (bijv. `idx index --json --verbose <dir>`).
+## 4. Agentic-Friendly CLI Options
+- [ ] Design the CLI (`image_indexer/cli.py` or Click app) with machine-parsable outputs (e.g., `--json` flag on all commands).
+- [ ] Provide non-interactive defaults and clear exit codes so Esther (or other AI agents) can easily run indexing or queries without human intervention.
+- [ ] Implement robust error handling and clear output logging (e.g., `idx index --json --verbose <dir>`).

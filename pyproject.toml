@@ -16,7 +16,9 @@ dependencies = [
     "requests>=2.31.0"
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
+# HEIC/HEIF (iPhone) support. Pillow has no native decoder for these formats.
+heif = ["pillow-heif>=0.15.0"]
 dev = [
     "pytest>=8.0.0"
 ]
