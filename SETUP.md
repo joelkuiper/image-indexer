@@ -60,7 +60,7 @@ chmod 600 ~/.ghcr-token
 ## Stap 3: Docker login op GHCR
 
 ```bash
-docker login ghcr.io -u <jouw-github-username> --password-stdin < ~/.ghcr-token
+docker login ghcr.io -u joelkuiper --password-stdin < ~/.ghcr-token
 ```
 
 Je zou moeten zien: `Login Succeeded`
@@ -71,7 +71,7 @@ Je zou moeten zien: `Login Succeeded`
 
 ```bash
 cd ~/Repositories/image-indexer
-docker build -t ghcr.io/<jouw-github-username>/image-indexer-hello:latest -f worker/hello/Dockerfile .
+docker build -t ghcr.io/joelkuiper/image-indexer-hello:latest -f worker/hello/Dockerfile .
 ```
 
 **Verwacht:**
@@ -91,7 +91,7 @@ docker images | grep image-indexer-hello
 ## Stap 5: Push naar GHCR
 
 ```bash
-docker push ghcr.io/<jouw-github-username>/image-indexer-hello:latest
+docker push ghcr.io/joelkuiper/image-indexer-hello:latest
 ```
 
 **Duurt:** 5-15 minuten afhankelijk van je upload.
@@ -100,7 +100,7 @@ docker push ghcr.io/<jouw-github-username>/image-indexer-hello:latest
 
 ## Stap 6: GitHub Package public maken
 
-1. Ga naar https://github.com/<jouw-username>?tab=packages
+1. Ga naar https://github.com/joelkuiper?tab=packages
 2. Klik op **`image-indexer-hello`**
 3. Klik rechts op **"Package settings"**
 4. Scroll naar beneden → **"Change visibility"**
@@ -119,7 +119,7 @@ docker push ghcr.io/<jouw-github-username>/image-indexer-hello:latest
 4. Vul in:
    - **Endpoint name**: `image-indexer-hello`
    - **Template**: Selecteer **"Custom"** (onderaan de lijst)
-   - **Container Image**: `ghcr.io/<jouw-github-username>/image-indexer-hello:latest`
+   - **Container Image**: `ghcr.io/joelkuiper/image-indexer-hello:latest`
    - **Container Disk**: 20 GB (default is prima)
    - **Volume Disk**: 0 GB (niet nodig voor deze test)
    - **GPU Types**: Vink **1 of 2 GPU types** aan (bijv: RTX 3070, RTX 4000 Ada, L4)
