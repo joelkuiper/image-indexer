@@ -86,7 +86,7 @@ RunPod /run endpoint contract:
 Test het deployed endpoint:
 ```bash
 # Get your API key from RunPod Console → User Settings
-export RUNPOD_API_KEY="your_api_key_here"
+export RUNPOD_API_KEY=$(cat ~/.runpod-token)
 
 # Test basic call
 curl -X POST "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run" \

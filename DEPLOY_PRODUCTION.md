@@ -64,7 +64,7 @@ Body:
 
 ```bash
 # Set your credentials
-export RUNPOD_API_KEY="***vbiqj7"
+export RUNPOD_API_KEY=$(cat ~/.runpod-token)
 export ENDPOINT_ID="your_endpoint_id_here"
 
 # Test with embed only
