@@ -1,12 +1,18 @@
-# Use a lightweight python base image. For production serverless GPU loads,
-# inherit from a CUDA/PyTorch base, e.g.:
-#   FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
-# The slim base below is fine for CPU smoke-tests of the handler contract.
-FROM python:3.11-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git \
-    && rm -rf /var/lib/apt/lists/*
+# Production RunPod worker with SigLIP2 + Qwen3-VL
+#
+# This image is ~15GB because it bakes model weights for fast cold starts.
+# For quick infra validation, use worker/hello/Dockerfile instead (~3-4GB).
+#
+# RunPod endpoint contract:
+#   POST https://api.runpod.ai/v2/{endpoint_id}/run
+#   Headers: Authorization: Bearer ***
+#   Body: {"input": {"image_b64": "...", "task": "embed|caption|all"}}
+#
+# Response: {"embedding": [1152 floats], "description": "...", "models": {...}}
+#
+# Cold start: ~60s (loads 5GB weights into GPU VRAM)
+# Warm request: ~200-500ms per image
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 # uv for fast, reproducible installs (project rule: never pip)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -14,7 +20,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 
 # Install deps into the system interpreter (no venv layer inside the container).
-ENV UV_SYSTEM_PYTHON=1
+ENV UV_SYSTEM_PYTHON=1 \
+    HF_HOME=/app/hf-cache \
+    TRANSFORMERS_VERBOSITY=error
+
 COPY pyproject.toml .
 RUN touch README.md && \
     uv pip install \
@@ -25,9 +34,12 @@ RUN touch README.md && \
       "accelerate>=0.27.0" \
       "pillow>=10.2.0"
 
-# Bake the model weights into the image so cold starts don't pay the download.
-# (Comment out to fetch lazily at first request instead.)
-ENV HF_HOME=/app/hf-cache
+# Bake both model weights (~5GB) so cold starts don't pay the download.
+# On first request, models load from local cache into GPU VRAM (~60s).
+# Subsequent requests: ~200-500ms per image.
+#
+# If you want to test the build without downloading weights (faster), comment this out.
+# Weights will then download on first request (slower cold start, but smaller image).
 RUN python -c "from huggingface_hub import snapshot_download; \
     snapshot_download('google/siglip2-so400m-patch16-384'); \
     snapshot_download('Qwen/Qwen3-VL-4B-Instruct')" || \
@@ -36,5 +48,6 @@ RUN python -c "from huggingface_hub import snapshot_download; \
 COPY worker/ /app/worker/
 
 WORKDIR /app/worker
-CMD ["python", "-u", "handler.py"]
 
+# RunPod calls this on container start. Handler registers with /run endpoint.
+CMD ["python", "-u", "handler.py"]
