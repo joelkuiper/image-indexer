@@ -68,7 +68,7 @@ class TestDbLayer(unittest.TestCase):
         version = self.db.execute(
             "SELECT max(version) FROM schema_migrations"
         ).fetchone()[0]
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
 
     def test_upsert_and_dedup(self):
         i1 = db.upsert_image(self.db, _meta("/a.jpg", "sha-a"), _vec(0.0))

@@ -59,6 +59,19 @@ IMAGE_EXTENSIONS = frozenset(
 )
 
 
+def derive_tags_from_path(path: Path) -> str | None:
+    """Derive comma-separated tags based on directory structures in the file path."""
+    tags = []
+    path_str = str(path).lower()
+    if "screenshot" in path_str:
+        tags.append("screenshot")
+    if "download" in path_str:
+        tags.append("download")
+    if "photo" in path_str or "photos" in path_str:
+        tags.append("photo")
+    return ",".join(tags) if tags else None
+
+
 @dataclass
 class PreprocessedImage:
     """Everything the pipeline needs from one source photo.
@@ -74,6 +87,7 @@ class PreprocessedImage:
         disk_format:     Container format as reported by Pillow from the source
                          (e.g. "JPEG", "PNG", "HEIF"). Uppercase when known.
         jpeg_bytes:      Resized, JPEG-encoded bytes ready for base64/POST.
+        tags:            Comma-separated tags derived from path (e.g. "screenshot").
         skipped:         True when the file could not be processed.
         skip_reason:     Human-readable reason when ``skipped=True``.
     """
@@ -87,6 +101,7 @@ class PreprocessedImage:
     resized_height: int
     disk_format: str
     jpeg_bytes: bytes
+    tags: str | None = None
     skipped: bool = False
     skip_reason: str = ""
 
@@ -215,6 +230,7 @@ def preprocess(
             resized_height=new_h,
             disk_format=disk_format,
             jpeg_bytes=jpeg_bytes,
+            tags=derive_tags_from_path(path),
         )
 
     except Exception as e:  # noqa: BLE001

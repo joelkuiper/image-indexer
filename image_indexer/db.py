@@ -49,6 +49,7 @@ def apply_migrations(db: sqlite3.Connection) -> None:
         if version in applied:
             continue
         db.executescript(sql_file.read_text())
+        db.execute("INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)", (version,))
         db.commit()
 
 
@@ -84,6 +85,7 @@ def upsert_image(
         "model_caption",
         "model_embed",
         "file_mtime",
+        "tags",
     ]
     values = [meta.get(c) for c in cols]
     placeholders = ", ".join("?" for _ in cols)

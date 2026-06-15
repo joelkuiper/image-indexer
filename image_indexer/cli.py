@@ -277,6 +277,7 @@ async def async_index_dir(
             "width": prep.orig_width,
             "height": prep.orig_height,
             "description": result.get("description"),
+            "tags": prep.tags,
             "model_caption": settings.get(
                 "caption_model_id", "Qwen/Qwen3-VL-4B-Instruct"
             ),
