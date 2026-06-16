@@ -22,7 +22,8 @@ WORKDIR /app
 # Install deps into the system interpreter (no venv layer inside the container).
 ENV UV_SYSTEM_PYTHON=1 \
     HF_HOME=/app/hf-cache \
-    TRANSFORMERS_VERBOSITY=error
+    TRANSFORMERS_VERBOSITY=error \
+    TORCH_CUDA_ARCH_LIST="5.0;5.2;6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0"
 
 COPY pyproject.toml .
 RUN touch README.md && \
@@ -32,7 +33,8 @@ RUN touch README.md && \
       "torchvision>=0.17.0" \
       "transformers>=4.57.0" \
       "accelerate>=0.27.0" \
-      "pillow>=10.2.0"
+      "pillow>=10.2.0" \
+      "--no-cache-dir"
 
 # Bake both model weights (~5GB) so cold starts don't pay the download.
 # On first request, models load from local cache into GPU VRAM (~60s).

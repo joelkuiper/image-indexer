@@ -8,3 +8,30 @@ wheels/
 
 # Virtual environments
 .venv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ruff & pytest caches
+.ruff_cache/
+.pytest_cache/
+
+# Hermes local plans (not part of the project)
+.hermes/
+
+# Test data & databases
+data/*.db
+data/*.sqlite
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# RunPod temp files
+runpod_temp/

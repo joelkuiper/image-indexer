@@ -24,9 +24,13 @@ log = logging.getLogger(__name__)
 RUNPOD_API_BASE = settings.get("runpod_api_base", "https://api.runpod.ai/v2")
 
 # Retry config for transient HTTP errors.
-MAX_RETRIES = 3
-RETRY_BACKOFF = 2.0  # seconds
-RETRYABLE_CODES = {429, 502, 503}
+MAX_RETRIES: int = 3
+RETRY_BACKOFF: float = 2.0  # seconds
+RETRYABLE_CODES: set[int] = {429, 502, 503}
+POLL_INTERVAL: float = 2.0  # seconds between status polls
+
+# RunPod response keys to strip.
+RUNPOD_META_KEYS: tuple[str, ...] = ("id", "status", "delayTime", "executionTime")
 
 
 @dataclass
@@ -155,7 +159,7 @@ class RunPodClient:
                     # Ignore transient status connection errors during polling, retry
                     log.warning(f"Transient polling request error for {job_id}: {e}")
 
-                await asyncio.sleep(poll_interval)
+                await asyncio.sleep(POLL_INTERVAL)
 
         raise TimeoutError(
             f"RunPod job {job_id} did not complete within {self.timeout}s"
@@ -168,12 +172,6 @@ class RunPodClient:
         if not output:
             # Some endpoints nest under "result" instead.
             output = data
-            # Strip RunPod metadata keys.
-            output = {
-                k: v
-                for k, v in output.items()
-                if k not in ("id", "status", "delayTime", "executionTime")
-            }
         if "error" in output:
             raise RuntimeError(f"Inference error: {output['error']}")
-        return output
+        return {k: v for k, v in output.items() if k not in RUNPOD_META_KEYS}

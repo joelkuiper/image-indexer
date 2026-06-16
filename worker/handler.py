@@ -20,6 +20,8 @@ import io
 
 from typing import Any
 
+import logging
+
 import runpod
 import torch
 from PIL import Image
@@ -30,9 +32,22 @@ from transformers import (
     AutoProcessor,
 )
 
-EMBED_MODEL_ID = "openai/clip-vit-base-patch32"
-CAPTION_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
-EMBED_DIM = 512
+logger = logging.getLogger(__name__)
+
+# Model configuration — centralised so the handler doesn't hardcode these.
+EMBED_MODEL_ID: str = "openai/clip-vit-base-patch32"
+CAPTION_MODEL_ID: str = "Qwen/Qwen3-VL-4B-Instruct"
+EMBED_DIM: int = 512
+MAX_NEW_TOKENS: int = 256
+DO_SAMPLE: bool = False
+
+# Prompt used for generating searchable captions.
+CAPTION_PROMPT: str = (
+    "You are an expert photo curator building a searchable archive. "
+    "Describe this image in 2-4 sentences. Cover the main subjects, the setting, "
+    "the mood and lighting, dominant colours, and transcribe any visible text. "
+    "Write plain descriptive prose with no preamble."
+)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 _dtype = (
@@ -90,14 +105,6 @@ def embed_image(image: Image.Image) -> list[float]:
     return feats[0].cpu().to(torch.float32).tolist()
 
 
-CAPTION_PROMPT = (
-    "You are an expert photo curator building a searchable archive. "
-    "Describe this image in 2-4 sentences. Cover the main subjects, the setting, "
-    "the mood and lighting, dominant colours, and transcribe any visible text. "
-    "Write plain descriptive prose with no preamble."
-)
-
-
 def caption_image(image: Image.Image) -> str:
     """Qwen3-VL caption via the chat-template API (handles vision tokens for us)."""
     assert caption_processor is not None
@@ -121,7 +128,7 @@ def caption_image(image: Image.Image) -> str:
 
     with torch.no_grad():
         generated = caption_model.generate(
-            **inputs, max_new_tokens=256, do_sample=False
+            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=DO_SAMPLE
         )
 
     # Strip the prompt tokens, decode only the freshly generated continuation.
@@ -133,6 +140,7 @@ def caption_image(image: Image.Image) -> str:
 
 
 def handler(job):
+    logger.info(f"Received job with task '{job.get('input', {}).get('task', 'all')}'.")
     load_models()
 
     job_input = job.get("input", {})
@@ -140,14 +148,17 @@ def handler(job):
     task = job_input.get("task", "all")
 
     if not image_b64:
+        logger.error("Missing required field: 'image_b64'")
         return {"error": "Missing required field: 'image_b64'"}
     if task not in ("embed", "caption", "all"):
+        logger.error(f"Invalid task '{task}'")
         return {"error": f"Invalid task '{task}'; expected embed|caption|all"}
 
     try:
         img_bytes = base64.b64decode(image_b64)
         image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    except Exception as e:  # noqa: BLE001 - report decode failures to caller
+    except Exception as e:
+        logger.error(f"Failed to decode image: {e}")
         return {"error": f"Failed to decode image: {e}"}
 
     result: dict[str, Any] = {"models": {}}
@@ -159,7 +170,8 @@ def handler(job):
         if task in ("caption", "all"):
             result["description"] = caption_image(image)
             result["models"]["caption"] = CAPTION_MODEL_ID
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
+        logger.error(f"Inference failed: {e}")
         return {"error": f"Inference failed: {e}"}
 
     return result
