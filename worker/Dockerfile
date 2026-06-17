@@ -28,13 +28,13 @@ ENV UV_SYSTEM_PYTHON=1 \
 COPY pyproject.toml .
 RUN touch README.md && \
     uv pip install \
-      "runpod>=1.9.1" \
-      "torch>=2.2.0" \
-      "torchvision>=0.17.0" \
-      "transformers>=4.57.0" \
-      "accelerate>=0.27.0" \
-      "pillow>=10.2.0" \
-      "--no-cache-dir"
+          "runpod>=1.9.1" \
+          "torch>=2.6.0" \
+          "torchvision>=0.17.0" \
+          "transformers>=4.57.0" \
+          "accelerate>=0.27.0" \
+          "pillow>=10.2.0" \
+          "--no-cache-dir"
 
 # Bake both model weights (~5GB) so cold starts don't pay the download.
 # On first request, models load from local cache into GPU VRAM (~60s).
