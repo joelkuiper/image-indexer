@@ -11,9 +11,14 @@ embed_dim = 512
 
 # Caption / VLM Configurations (Qwen3-VL Model)
 caption_model_id = "Qwen/Qwen3-VL-4B-Instruct"
+caption_prompt = "You are an expert photo curator building a searchable archive. Describe this image in 2-4 sentences. Cover the main subjects, the setting, the mood and lighting, dominant colours, and transcribe any visible text. Write plain descriptive prose with no preamble."
 
-# Client options
-runpod_api_base = "https://api.runpod.ai/v2"
+# Concurrency control
+max_workers = 5
+
+# Remote inference server configuration
+remote_api_base = "https://your-vm.example.com/api"
+remote_timeout = 300
 
 # Terminal display settings for humans
 cli_desc_wrap_len = 160  # Expand display to fit rich captions nicely

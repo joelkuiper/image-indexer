@@ -1,11 +1,10 @@
 [project]
 name = "image-indexer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Visual memory search — find anything with pixels by what you remember, not what you named it."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "runpod>=1.9.1",
     "torch>=2.2.0",
     "torchvision>=0.17.0",
     "transformers>=4.57.0",
@@ -13,9 +12,7 @@ dependencies = [
     "accelerate>=0.27.0",
     "sqlite-vec>=0.1.9",
     "click>=8.1.7",
-    "requests>=2.31.0",
-    "dynaconf>=3.2.4",
-    "httpx>=0.27.0"
+    "dynaconf>=3.2.4"
 ]
 
 [project.optional-dependencies]
@@ -30,7 +27,6 @@ idx = "image_indexer.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["image_indexer*"]
-exclude = ["worker*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

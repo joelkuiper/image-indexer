@@ -1,18 +1,40 @@
-# Pipeline TODO
+# TODO — Image Indexer
 
-## 1. Local & Production CLI Polish
-- [x] Configure centralization of settings using `dynaconf` (remove magic dimensions and constants).
-- [x] Refactor `idx index` into a highly parallel native `asyncio` event loop.
-- [x] Integrate OCR-capturing and local CLIP text encoding (512-d).
-- [ ] Add support for path-based auto-tagging upon ingestion (`/screenshots/` vs `/photos/` vs `/downloads/`).
-- [ ] Implement query composition on CLI directly (combining `--semantic` and `--structured` with custom where clauses inside one single shell pipeline).
+## Completed ✅
 
-## 2. Ingestion & Sync Automation (Hetzner Box)
-- [ ] Write thin rsync scripts on Mac to sync pictures, downloads, and screenshots to the Hetzner target directory.
-- [ ] Set up secure key-based SSH parameters (using restricted config commands to bypass agent validation friction).
-- [ ] Implement automated indexing via cron scheduler post-rsync sync.
+- [x] Refactor to local-first architecture
+- [x] Remove RunPod dependencies
+- [x] Create `inference.py` with local and remote modes
+- [x] Update CLI with `--mode` and `--url` flags
+- [x] Create inference server with HTTP API
+- [x] Update README.md
+- [x] Create LOCAL.md (usage guide)
+- [x] Create DEPLOYING_SERVER.md (server deployment)
+- [x] Create ARCHITECTURE.md (system design)
+- [x] Update pyproject.toml (remove runpod)
 
-## 3. Signal Integration
-- [ ] Build Signal-based listener querying the database for "vibe" parameters.
-- [ ] Implement media-attachment responder with transcribed text sent as `alt-text`.
-- [ ] Add clean quality reports or curation checks ("You have 23 similar screenshots from today, want to clear them out?").
+## In Progress 🚧
+
+- [ ] Test local mode end-to-end
+- [ ] Test remote mode with server
+- [ ] Add unit tests for inference client
+- [ ] Add integration tests for CLI
+- [ ] Optimize model loading (lazy initialization)
+- [ ] Add progress tracking for long jobs
+
+## To Do ⏳
+
+- [ ] Add support for multiple inference backends
+- [ ] Implement job cancellation
+- [ ] Add metrics/monitoring endpoints
+- [ ] Create Docker Compose setup for local dev
+- [ ] Add GitHub Actions CI/CD
+- [ ] Publish to PyPI
+
+## Future Ideas 💡
+
+- [ ] Support for additional models (SigLIP2, BLIP2)
+- [ ] Image-to-image search (embed images, not just text)
+- [ ] Batch upload optimization
+- [ ] Web UI for browsing indexed images
+- [ ] Plugin system for custom inference backends

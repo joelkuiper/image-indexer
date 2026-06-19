@@ -3,13 +3,14 @@
 Commands:
   status   Show database statistics
   search   Search indexed images (semantic, lexical, structured)
-  index    Index a directory of images via RunPod
+  index    Index a directory of images
 
 Design:
   - JSON output for agents (--json flag)
   - Exit codes: 0=success, 1=user error, 2=system error, 3=partial failure
   - Progress to stderr, data to stdout
   - No interactive prompts ever
+  - Two indexing modes: local (direct) or remote (async HTTP)
 """
 
 from __future__ import annotations
@@ -41,9 +42,7 @@ EXIT_PARTIAL = 3
 def common_options(f):
     """Decorator that adds --json, --verbose, --db to any click command."""
 
-    @click.option(
-        "--json", "output_json", is_flag=True, help="JSON output (for agents)"
-    )
+    @click.option("--json", "output_json", is_flag=True, help="JSON output (for agents)")
     @click.option("--verbose", is_flag=True, help="Show progress to stderr")
     @click.option(
         "--db",
@@ -88,8 +87,7 @@ def main():
     pass
 
 
-# ── status ──────────────────────────────────────────────────────────────────
-
+# ── status ───────────────────────────────────────────────────────────────────
 
 @main.command()
 @common_options
@@ -123,8 +121,7 @@ def status():
     sys.exit(EXIT_OK)
 
 
-# ── search ──────────────────────────────────────────────────────────────────
-
+# ── search ───────────────────────────────────────────────────────────────────
 
 @main.command()
 @click.argument("query")
@@ -215,8 +212,7 @@ def search(query, semantic, lexical, structured, limit):
     sys.exit(EXIT_OK)
 
 
-# ── index ───────────────────────────────────────────────────────────────────
-
+# ── index ────────────────────────────────────────────────────────────────────
 
 async def async_index_dir(
     ctx: click.Context,
@@ -260,12 +256,12 @@ async def async_index_dir(
             log(ctx, f"  {path.name} preprocessed [Dry-run]")
             return "indexed", None
 
-        # 3. Parallel RunPod call (non-blocking Network request)
-        log(ctx, f"  {path.name} uploading to RunPod...")
+        # 3. Inference (local or remote)
+        log(ctx, f"  {path.name} processing...")
         try:
             result = await client.run(prep.jpeg_bytes, task="all")
         except Exception as e:
-            log(ctx, f"  {path.name} RunPod inference failed: {e}")
+            log(ctx, f"  {path.name} inference failed: {e}")
             return "failed", None
 
         # 4. Return results for serial database write
@@ -276,7 +272,7 @@ async def async_index_dir(
             "format": prep.disk_format,
             "width": prep.orig_width,
             "height": prep.orig_height,
-            "description": result.get("description"),
+            "description": result.description,
             "tags": prep.tags,
             "model_caption": settings.get(
                 "caption_model_id", "Qwen/Qwen3-VL-4B-Instruct"
@@ -285,7 +281,7 @@ async def async_index_dir(
                 "embed_model_id", "openai/clip-vit-base-patch32"
             ),
         }
-        return "indexed", (meta, result.get("embedding"))
+        return "indexed", (meta, result.embedding)
 
     # Spawn all process tasks concurrently
     tasks = [process_one(p) for p in image_paths]
@@ -315,28 +311,48 @@ async def async_index_dir(
     return stats
 
 
-@main.command()
-@click.argument(
-    "directory", type=click.Path(exists=True, file_okay=False, resolve_path=True)
+@click.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False, resolve_path=True))
+@click.option(
+    "--mode",
+    type=click.Choice(["local", "remote"]),
+    default="local",
+    envvar="INDEXER_MODE",
+    help="Inference mode: local (default) or remote HTTP",
 )
-@click.option("--endpoint-id", envvar="RUNPOD_ENDPOINT_ID", help="RunPod endpoint ID")
-@click.option("--api-key", envvar="RUNPOD_API_KEY", help="RunPod API key")
-@click.option("--dry-run", is_flag=True, help="Preprocess only, skip RunPod")
+@click.option(
+    "--url",
+    "--remote-url",
+    envvar="INDEXER_REMOTE_URL",
+    help="Remote inference server URL (required for --mode remote)",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=int(settings.get("max_workers", 5)),
+    envvar="INDEXER_WORKERS",
+    help="Number of concurrent inference workers (default: 5)",
+)
+@click.option("--dry-run", is_flag=True, help="Preprocess only, skip inference")
 @common_options
-def index(directory, endpoint_id, api_key, dry_run):
+def index(directory, mode, url, workers, dry_run):
     """Index a directory of images.
 
     Idempotent: re-running skips already-indexed files (SHA-256 dedup).
+
+    Modes:
+      local  Inference runs directly on this machine (default)
+      remote Images uploaded to remote server via HTTP
     """
     ctx = click.get_current_context()
     from image_indexer.db import connect
     from image_indexer.preprocess import scan_directory
 
-    if not dry_run and not endpoint_id:
-        click.echo("Error: --endpoint-id or RUNPOD_ENDPOINT_ID required", err=True)
-        sys.exit(EXIT_USER_ERROR)
-    if not dry_run and not api_key:
-        click.echo("Error: --api-key or RUNPOD_API_KEY required", err=True)
+    if mode == "remote" and not url:
+        click.echo(
+            "Error: --url required for remote mode (set INDEXER_REMOTE_URL env var)",
+            err=True,
+        )
         sys.exit(EXIT_USER_ERROR)
 
     dir_path = Path(directory)
@@ -350,11 +366,17 @@ def index(directory, endpoint_id, api_key, dry_run):
         click.echo(f"Error: cannot open database: {e}", err=True)
         sys.exit(EXIT_SYSTEM_ERROR)
 
-    client = None
-    if not dry_run:
-        from image_indexer.client import RunPodClient
+    # Create inference client
+    if mode == "local":
+        from image_indexer.inference import InferenceClient
 
-        client = RunPodClient(endpoint_id=endpoint_id, api_key=api_key)
+        client = InferenceClient(mode="local", workers=workers)
+        log(ctx, "Using local inference mode")
+    else:
+        from image_indexer.inference import InferenceClient
+
+        client = InferenceClient(mode="remote", url=url, workers=workers)
+        log(ctx, f"Using remote inference mode: {url}")
 
     # Execute our centralized async event loop!
     log(ctx, "Starting concurrent indexing pipeline...")

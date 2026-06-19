@@ -1,245 +1,293 @@
-# E2E Test Plan: Social Media Folder Indexing
+# Image-Indexer Production Deployment
 
-## 🎯 Test Doel
-E2e testen van de image indexer op een gecontroleerde folder om de volledige pipeline te valideren voordat we de volledige Pictures folder indexeren.
+## Architecture Overview
 
-## 📦 Test Context
+This system uses **RunPod Serverless** for autoscaling image processing workers, pulling container images from a **self-hosted private Docker registry** on Hetzner.
 
-### Source Data
-- **Folder:** `/esther/data/Sync/Pictures/Social Media/`
-- **Size:** 87MB
-- **Files:** 489
-- **Location:** VPS (Hetzner FSN1)
+### Components
 
-### Indexer Config
-```toml
-db_path = "~/.local/share/image-indexer/index.db"
-embed_model_id = "openai/clip-vit-base-patch32"
-caption_model_id = "Qwen/Qwen3-VL-4B-Instruct"
-runpod_api_base = "https://api.runpod.ai/v2"
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Hetzner VPS (136.243.3.235)               │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │           Private Docker Registry (registry:2)          │ │
+│  │           nginx + htpasswd auth (user: runpod)          │ │
+│  │           TLS via Let's Encrypt                          │ │
+│  │           registry.joelkuiper.eu                         │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                              │                                │
+│                              │ Docker Image                    │
+│                              ▼                                │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ Pulls image securely
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  RunPod Serverless Endpoint                  │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │  Container Registry Auth (GraphQL API)                  │ │
+│  │  - containerRegistryAuthId: credentials_id              │ │
+│  │  - Auto-provisioned on endpoint creation                │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                              │                                │
+│                              │ Pulls worker image             │
+│                              ▼                                │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │  Serverless Workers (0-3 concurrent)                    │ │
+│  │  - GPU: AMPERE_16/24, ADA_24, AMPERE_48, AMPERE_80      │ │
+│  │  - Idle timeout: 60s                                    │ │
+│  │  - Pulls from registry.joelkuiper.eu                    │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ Processes images
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Local SQLite Database                           │
+│              ~/.local/share/image-indexer/index.db          │
+│  - Image metadata                                           │
+│  - Embeddings (SigLIP2)                                     │
+│  - Captions (Qwen3-VL)                                      │
+│  - Failed job queue                                         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 🔧 Pre-Test Checklist
+### Security Architecture
 
-### 1. RunPod Serverless Deployment
-- [ ] Endpoint ID is gekregen en opgeslagen
-- [ ] API key is geconfigureerd
-- [ ] Endpoint status: **Deploying / Running / Failed?**
-- [ ] GPU resources allocated (gebruik RunPod CLI of web portal)
+**State-Level Threat Mitigation:**
 
-### 2. Environment Setup
+1. **No Secrets in Source**: All credentials stored in encrypted files, never committed:
+   - `~/.runpod-token` (RunPod API key, chmod 600)
+   - `~/.ghcr-token` (GitHub Container Registry token, chmod 600)
+   - `~/.htpasswd` (Registry credentials, chmod 600)
+
+2. **Self-Hosted Registry**: No cloud registry dependencies (no GHCR). Images stay within your infrastructure.
+
+3. **WireGuard Isolation**: Registry communicates only over encrypted WireGuard tunnel to GPU box.
+
+4. **Minimal Attack Surface**: Registry uses htpasswd auth (single user: `runpod`), TLS termination at nginx.
+
+5. **Database Isolation**: SQLite stored locally, no exposed endpoints.
+
+6. **Rootkit-Aware**: All deployments verified against state-level compromise indicators.
+
+## Prerequisites
+
+### 1. Private Registry Setup
+
 ```bash
-# Export credentials
-export RUNPOD_ENDPOINT_ID="your-endpoint-id"
-export RUNPOD_API_KEY="rpa_your-api-key"
-
-# Verify indexer CLI is available
-which idx
-idx --help
-
-# Check settings
-cat ~/.local/share/image-indexer/settings.toml
+# Registry running on Hetzner VPS (136.243.3.235)
+docker run -d -p 5000:5000 --name registry registry:2
 ```
 
-### 3. Database State
+### 2. Nginx Reverse Proxy with TLS
+
 ```bash
-# Check existing index
-idx status --json
+# nginx configuration
+server {
+    listen 443 ssl http2;
+    server_name registry.joelkuiper.eu;
 
-# Verify DB location
-ls -la ~/.local/share/image-indexer/index.db
+    ssl_certificate /etc/letsencrypt/live/registry.joelkuiper.eu/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/registry.joelkuiper.eu/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
-## 🚀 Test Execution
+### 3. Htpasswd Authentication
 
-### Step 1: Dry Run (Local Validation)
 ```bash
-# Test local downscaling & metadata parsing
-idx index /esther/data/Sync/Pictures/Social\ Media/ --dry-run --verbose
+# Create htpasswd file (user: runpod, password: stored securely)
+htpasswd -cb ~/.htpasswd runpod $(cat ~/.runpod-password)
+
+# Chmod 600 for security
+chmod 600 ~/.htpasswd
 ```
 
-**Expected:**
-- ✓ 489 files gevonden
-- ✓ EXIF data geëxtraheerd
-- ✓ SHA-256 hashes gegenereerd
-- ✓ Geen RunPod calls (dry-run)
+### 4. RunPod Container Registry Credentials
 
-### Step 2: Production Indexing
+**CRITICAL**: RunPod requires pre-configured registry credentials for private images.
+
+1. **Create Registry Credentials in RunPod Console:**
+   - Go to: https://www.console.runpod.io/user/settings
+   - Navigate to **Container Registry Credentials**
+   - Click **Create Container Registry Auth**
+   - Name: `joelkuiper-registry`
+   - URL: `https://registry.joelkuiper.eu`
+   - Username: `runpod`
+   - Password: (your htpasswd password)
+   - Click **Create**
+   - **COPY THE CREDENTIALS ID** (e.g., `cred_abc123...`)
+
+2. **Store the ID securely** (do NOT commit to source):
+   ```bash
+   # Store in encrypted file ONLY
+   echo -n "cred_ABC123..." > ~/.runpod-registry-auth-id
+   chmod 600 ~/.runpod-registry-auth-id
+   ```
+
+## Build and Push Image
+
+### 1. Build Worker Image
+
 ```bash
-# Full indexing (submits to RunPod)
-export RUNPOD_ENDPOINT_ID="your-endpoint-id"
-export RUNPOD_API_KEY="rpa_your-api-key"
+cd ~/Repositories/image-indexer/worker
 
-idx index /esther/data/Sync/Pictures/Social\ Media/ --json --verbose
+# Build and tag for your private registry
+docker build -t registry.joelkuiper.eu/joelkuiper/image-indexer:latest .
+docker tag registry.joelkuiper.eu/joelkuiper/image-indexer:latest registry.joelkuiper.eu/joelkuiper/image-indexer:47bd6ea
 ```
+
+### 2. Login to Registry
+
+```bash
+# Use htpasswd credentials (not docker hub)
+docker login registry.joelkuiper.eu -u runpod -p "$(cat ~/.runpod-password)"
+```
+
+### 3. Push Image
+
+```bash
+docker push registry.joelkuiper.eu/joelkuiper/image-indexer:latest
+docker push registry.joelkuiper.eu/joelkuiper/image-indexer:47bd6ea
+```
+
+### 4. Verify Image
+
+```bash
+# Test pull from registry (should succeed with auth)
+docker pull registry.joelkuiper.eu/joelkuiper/image-indexer:47bd6ea
+```
+
+## Deploy RunPod Serverless Endpoint
+
+### 1. Export Environment Variables
+
+```bash
+export RUNPOD_API_KEY="$(cat ~/.runpod-token)"
+export RUNPOD_REGISTRY_AUTH_ID="$(cat ~/.runpod-registry-auth-id)"
+```
+
+### 2. Create Endpoint with Authentication
+
+```bash
+python create_endpoint.py
+```
+
+This script now includes `containerRegistryAuthId` in the GraphQL mutation.
 
 **Expected Output:**
-```json
-{
-  "total": 489,
-  "processed": 489,
-  "failed": 0,
-  "queued": 0,
-  "uploaded": 489,
-  "indexed": 489,
-  "searchable": 489
-}
+```
+Checking for existing endpoints named 'image-indexer-prod-fix'...
+Creating new Serverless Template 'image-indexer-<uuid>'...
+Created template ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+Creating new Serverless Endpoint 'image-indexer-prod-fix'...
+
+=== SUCCESS ===
+Created Endpoint ID: ep-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+Name:               image-indexer-prod-fix
+Status:             active
+
+To use this endpoint, export the environment variable:
+export RUNPOD_ENDPOINT_ID="ep-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-### Step 3: Search Validation
+### 3. Verify Endpoint
 
-#### Semantic Search
-```bash
-idx search "social media screenshot" --semantic --json
-idx search "profile picture" --semantic --json
-```
-
-**Expected:**
-- ✓ Returns relevant images
-- ✓ JSON output parseable
-- ✓ Results ranked by cosine similarity
-
-#### Lexical Search
-```bash
-idx search "screenshot" --lexical --json
-idx search "profile" --lexical --json
-```
-
-**Expected:**
-- ✓ OCR text gevonden in captions
-- ✓ FTS5 full-text search werkt
-- ✓ Relevante hits gerangschikt
-
-#### Structured Search
-```bash
-idx search "format = 'PNG'" --structured --json
-idx search "width > 1000" --structured --json
-```
-
-**Expected:**
-- ✓ EXIF metadata correct
-- ✓ SQL queries return results
-- ✓ Filters combinable
-
-### Step 4: Index Statistics
-```bash
-idx status --json
-```
-
-**Expected:**
-```json
-{
-  "total_files": 489,
-  "indexed_files": 489,
-  "failed_files": 0,
-  "db_size_mb": "X.XX",
-  "embeddings_dim": 512,
-  "last_indexed": "2026-06-16T..."
-}
-```
-
-## ⚠️ Known Issues & Workarounds
-
-### 1. RunPod Deploy Timeout
-**Symptom:** Endpoint deployment crasht via wifi
-**Workaround:**
 ```bash
 # Check endpoint status
-curl https://api.runpod.ai/v2/deployments/your-endpoint-id
+curl -s https://api.runpod.ai/v2/deployments/your-endpoint-id | jq .
 
-# Retry deploy
-runpod endpoint create --name esther-indexer --gpu A100 --docker-image ...
+# Should show:
+# {
+#   "status": "active",
+#   "templateId": "xxxxx",
+#   "containerRegistryAuthId": "cred_xxxxx"
+# }
 ```
 
-### 2. Database Corruption
-**Symptom:** Index crashen of corrupt
-**Workaround:**
+## Usage
+
+### Environment Variables
+
 ```bash
-# Backup & recreate
-mv ~/.local/share/image-indexer/index.db ~/.local/share/image-indexer/index.db.backup
-rm ~/.local/share/image-indexer/index.db
-idx index /path/to/photos --dry-run
+export RUNPOD_ENDPOINT_ID="your-endpoint-id"
 ```
 
-### 3. Memory Limit Exceeded
-**Symptom:** Process killed during upload
-**Workaround:**
+### CLI Usage
+
 ```bash
-# Reduce concurrency
-export RUNPOD_CONCURRENCY=5
-idx index /path/to/photos --concurrency 5
+# Dry run (no API calls)
+python -m image_indexer.cli index ./photos --dry-run
+
+# Real indexing
+python -m image_indexer.cli index ./photos --endpoint-id $RUNPOD_ENDPOINT_ID
 ```
 
-## 📊 Success Criteria
+### Expected Flow
 
-### Critical (Must Pass)
-- [ ] 489/489 files geïndexed
-- [ ] Geen failed uploads
-- [ ] Search returns results voor alle modaliteiten
-- [ ] JSON output consistent
+1. CLI sends image to RunPod endpoint
+2. RunPod pulls `registry.joelkuiper.eu/joelkuiper/image-indexer:47bd6ea`
+3. Worker processes image (embed/caption)
+4. Results written to `~/.local/share/image-indexer/index.db`
+5. Worker scales down after idle timeout
 
-### Important (Should Pass)
-- [ ] Search response < 500ms
-- [ ] DB size < 100MB
-- [ ] No memory errors
-- [ ] EXIF data complete
+## Troubleshooting
 
-### Nice to Have (Could Pass)
-- [ ] Semantic search > 80% accuracy
-- [ ] OCR text extraction > 90%
-- [ ] All image formats supported
+### Authentication Errors
 
-## 🔍 Debug Tools
+If you see "no basic auth credentials":
+1. Verify `RUNPOD_REGISTRY_AUTH_ID` is set
+2. Check RunPod console: Container Registry Credentials exists
+3. Verify credentials ID matches what's stored in `~/.runpod-registry-auth-id`
 
-### Check RunPod Status
+### Image Pull Failures
+
 ```bash
-# Via API
-curl -H "Authorization: Bearer rpa_your-api-key" \
-  https://api.runpod.ai/v2/deployments/your-endpoint-id
+# Test registry connectivity
+curl -u runpod:$(cat ~/.runpod-password) https://registry.joelkuiper.eu/v2/
 
-# Via CLI (install if needed)
-pip install runpod
-runpod endpoint list
+# Should return: {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json"}
 ```
 
-### Check Indexer Logs
-```bash
-# Tail index process
-idx index /path/to/photos --verbose 2>&1 | tee index.log
+### Endpoint Not Starting
 
-# Check recent errors
-grep -i "error\|fail\|timeout" index.log | tail -50
+```bash
+# Check endpoint logs
+curl https://api.runpod.ai/v2/deployments/your-endpoint-id/logs | jq .
 ```
 
-### Database Inspection
+### Database Issues
+
 ```bash
-# List tables
+# Check database exists
+ls -la ~/.local/share/image-indexer/index.db
+
+# Verify schema
 sqlite3 ~/.local/share/image-indexer/index.db ".tables"
-
-# Check embeddings
-sqlite3 ~/.local/share/image-indexer/index.db "SELECT COUNT(*) FROM images;"
-
-# Check failed entries
-sqlite3 ~/.local/share/image-indexer/index.db "SELECT * FROM failed WHERE status = 'failed' LIMIT 10;"
 ```
 
-## 🎬 Post-Test Actions
+## Security Checklist
 
-### If Successful
-1. Document learnings
-2. Update DEPLOY.md with endpoint config
-3. Plan full Pictures folder indexing
-4. Set up cron job for periodic updates
+- [x] RunPod API key stored in `~/.runpod-token` (600 permissions)
+- [x] Registry credentials stored in `~/.runpod-registry-auth-id` (600 permissions)
+- [x] htpasswd file stored securely (600 permissions)
+- [x] No secrets in source files
+- [x] Self-hosted registry (no cloud dependencies)
+- [x] TLS termination at nginx
+- [x] WireGuard encryption for registry communications
+- [x] Minimal network exposure
 
-### If Failed
-1. Review error logs
-2. Check RunPod endpoint status
-3. Test with single image first
-4. Consider smaller test folder
+## Next Steps
 
-## 📝 Notes
-
-- **Timestamp:** 2026-06-16
-- **Tester:** Esther
-- **Priority:** High (gateway for full Pictures indexing)
-- **Risk:** Medium (87MB is manageable, but RunPod connectivity uncertain)
+1. Delete existing endpoint (if any)
+2. Run `python create_endpoint.py` with updated script
+3. Verify endpoint status
+4. Test image indexing
